@@ -3,8 +3,9 @@
 
 cd "$(dirname "$0")"
 
-echo "=== Step 1: 添加远程仓库 ==="
-git remote add origin git@github.com:yumingjie0405/-1792-1793-.git 2>/dev/null || echo "远程仓库已存在,跳过"
+echo "=== Step 1: 切换到HTTPS远程仓库(SSH密钥问题) ==="
+git remote remove origin 2>/dev/null
+git remote add origin https://github.com/yumingjie0405/-1792-1793-.git
 
 echo ""
 echo "=== Step 2: 首次提交 ==="
