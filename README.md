@@ -1,206 +1,253 @@
-# OCR 文献翻译平台
+# East India Company Canton Factory Archives Platform (1792–1793)
 
-一个基于 PaddleOCR-VL 和 GPT 的历史文献 OCR 识别与翻译平台。
+**东印度公司广州商馆（1792–1793）档案数字文本与全文检索平台**
 
-## 功能特性
+<div align="center">
+  <img src="./assets/platform-preview.png" alt="Platform Preview" width="100%">
+</div>
 
-- 上传 PDF 或图片文档
-- 自动版面分析与 OCR 识别
-- GPT 驱动的文本处理：
-  - OCR 纠错
-  - 现代英语重写
-  - 中文翻译
-- 可视化阅读器：原图 + bbox 叠加 + 文本面板
-- 支持导出 JSON / Markdown / TXT
+---
 
-## 技术栈
+## 📖 Project Overview
 
-### 后端
+A digital humanities platform for digitizing, OCR processing, and full-text search of historical archives from the East India Company's Canton Factory (1792–1793). This platform combines modern OCR technology with LLM-assisted text correction to preserve and make accessible rare historical documents.
 
-- Python 3.10+
-- FastAPI
-- SQLAlchemy + PostgreSQL
-- Celery + Redis
-- PaddleOCR-VL (本地服务)
-- OpenAI API
+**本平台致力于东印度公司广州商馆历史档案的数字化、OCR识别与全文检索，结合现代 OCR 技术与大语言模型辅助纠错，保存并开放珍稀历史文献。**
 
-### 前端
+---
 
+## ✨ Key Features
+
+- **🔍 High-Accuracy OCR**: Powered by PaddleOCR-VL for layout-aware document parsing
+- **🤖 LLM-Assisted Correction**: DeepSeek-V3 intelligent text correction with historical context awareness
+- **📄 Multi-Format Support**: PDF, images (PNG, JPG) with automatic page splitting
+- **🎯 Precise Bbox Rendering**: Accurate text region highlighting with fixed coordinate alignment
+- **🌐 Modern Web Interface**: Next.js + React responsive viewer with real-time preview
+- **📦 Batch Processing**: Celery-based async task queue for document-level processing
+- **💾 Structured Export**: JSON, Markdown, TXT export with customizable formats
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────────┐      ┌──────────────────┐      ┌─────────────────┐
+│   Frontend      │◄────►│   Backend API    │◄────►│  PaddleOCR-VL   │
+│   Next.js       │      │   FastAPI        │      │   Service       │
+└─────────────────┘      └──────────────────┘      └─────────────────┘
+                                 │
+                                 ▼
+                         ┌──────────────────┐
+                         │   PostgreSQL     │
+                         │   + Redis        │
+                         └──────────────────┘
+                                 │
+                                 ▼
+                         ┌──────────────────┐
+                         │   Celery Workers │
+                         │   (OCR + LLM)    │
+                         └──────────────────┘
+```
+
+### Tech Stack
+
+**Frontend**
 - Next.js 14 (App Router)
 - TypeScript
 - Tailwind CSS
-- shadcn/ui
+- Lucide Icons
 
-## 快速开始
+**Backend**
+- FastAPI (Python 3.12+)
+- SQLAlchemy + PostgreSQL
+- Celery + Redis
+- httpx (async HTTP client)
 
-> paddlex --serve   --pipeline PaddleOCR-VL-1.6      --port 8888
-> paddlex --serve --pipeline PaddleOCR-VL --port 8888
+**AI Services**
+- PaddleOCR-VL 1.6 (Layout parsing + OCR)
+- DeepSeek-V3 / OpenAI-compatible LLM (Text correction)
 
-如果需要把 ERNIEKit 微调后的历史英文手写体模型发布成服务，先阅读
-[ERNIEKit 微调模型接入说明](docs/ERNIEKIT_SERVER_DEPLOYMENT.md)。项目仍通过
-PaddleX 的完整 PaddleOCR-VL 流水线调用 `/layout-parsing`，ERNIEKit 不直接充当 HTTP 服务。
+---
 
-```
-unset HTTP_PROXY
-unset HTTPS_PROXY
-unset ALL_PROXY
-unset http_proxy
-unset https_proxy
-unset all_proxy
-```
+## 🚀 Quick Start
 
-### 1. 启动依赖服务
+### Prerequisites
+
+- Docker & Docker Compose
+- Node.js 18+
+- Python 3.12+
+- PostgreSQL 14+
+- Redis 7+
+
+### 1. Clone Repository
 
 ```bash
-# 启动 PostgreSQL 和 Redis
+git clone https://github.com/yumingjie0405/EIC-Canton-Factory-Archives-1792-1793.git
+cd EIC-Canton-Factory-Archives-1792-1793
+```
+
+### 2. Configure Environment
+
+**Backend** (`backend/.env`):
+```bash
+cp backend/.env.example backend/.env
+# Edit backend/.env and set:
+# - DATABASE_URL
+# - PADDLE_OCR_URL (your PaddleOCR service endpoint)
+# - GPT_API_KEY (OpenAI-compatible API key)
+```
+
+**Frontend** (`frontend/.env.local`):
+```bash
+cp frontend/.env.example frontend/.env.local
+# Edit frontend/.env.local if needed
+```
+
+### 3. Deploy PaddleOCR Service (Optional)
+
+See [deploy/paddleocr_vl/README.md](deploy/paddleocr_vl/README.md) for deployment instructions.
+
+Or use the public endpoint (if available).
+
+### 4. Start Services
+
+**Option A: Docker Compose (Recommended)**
+```bash
 docker-compose up -d
 ```
 
-### 2. 配置后端
+**Option B: Manual Start**
 
 ```bash
+# Start backend
 cd backend
-
-# 创建虚拟环境
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# 安装依赖
 pip install -r requirements.txt
+uvicorn app.main:app --reload
 
-# 复制环境变量配置
-cp .env.example .env
-
-# 编辑 .env 文件，配置：
-# - DATABASE_URL
-# - GPT_API_KEY
-# - PADDLE_OCR_URL (确保 PaddleOCR 服务已启动)
-```
-
-### 3. 启动后端服务
-
-```bash
-# 终端 1: 启动 FastAPI
-cd backend
-source venv/bin/activate
-python -m app.main
-
-# 终端 2: 启动 Celery Worker
-cd backend
-source venv/bin/activate
+# Start Celery worker (in another terminal)
 celery -A app.tasks.celery_app worker --loglevel=info
-```
 
-### 4. 配置前端
-
-```bash
+# Start frontend (in another terminal)
 cd frontend
-
-# 安装依赖
 npm install
-
-# 复制环境变量配置
-cp .env.example .env.local
-```
-
-### 5. 启动前端
-
-```bash
-cd frontend
 npm run dev
 ```
 
-### 6. 访问应用
+### 5. Access Platform
 
-- 前端: http://localhost:3000
-- 后端 API: http://localhost:8000
-- API 文档: http://localhost:8000/docs
-- OCR 连通性: http://localhost:8000/health/ocr
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:8000
+- **API Docs**: http://localhost:8000/docs
 
-## 项目结构
+---
 
-```
-MVP_PaddleOCR/
-├── backend/
-│   ├── app/
-│   │   ├── api/routers/     # API 路由
-│   │   ├── models/          # 数据库模型
-│   │   ├── schemas/         # Pydantic 模式
-│   │   ├── services/        # 业务逻辑
-│   │   ├── repositories/    # 数据访问层
-│   │   ├── tasks/           # Celery 任务
-│   │   ├── prompts/         # GPT 提示模板
-│   │   ├── core/            # 核心模块
-│   │   └── utils/           # 工具函数
-│   └── requirements.txt
-├── frontend/
-│   └── src/
-│       ├── app/             # Next.js 页面
-│       ├── components/      # React 组件
-│       ├── lib/             # API 客户端
-│       └── types/           # TypeScript 类型
-├── storage/                 # 文件存储
-└── docker-compose.yml
-```
+## 📚 Usage Guide
 
-## API 接口
+### Upload Documents
 
-### 文档管理
+1. Navigate to **Upload** page
+2. Select PDF or image files
+3. Configure OCR options (visualization, table merging, etc.)
+4. Click **Start OCR**
 
-- `POST /api/documents/upload` - 上传文档
-- `GET /api/documents` - 文档列表
-- `GET /api/documents/{id}` - 文档详情
-- `DELETE /api/documents/{id}` - 删除文档
-- `POST /api/documents/{id}/run-ocr` - 启动 OCR
+### Review & Correct
 
-### 页面与区块
+1. Go to **Documents** page
+2. Select a document to view OCR results
+3. Use the **Viewer** to inspect text blocks with bbox overlays
+4. Run **LLM Correction** for intelligent text refinement
 
-- `GET /api/documents/{id}/pages` - 获取页面列表
-- `GET /api/pages/{id}` - 页面详情
-- `GET /api/pages/{id}/blocks` - 获取区块列表
-- `GET /api/blocks/{id}` - 区块详情
-- `PATCH /api/blocks/{id}` - 更新区块
+### Export Results
 
-### GPT 处理
+1. Open document detail page
+2. Choose export format (JSON / Markdown / TXT)
+3. Download processed content
 
-- `POST /api/blocks/{id}/run-polish` - 处理单个区块
-- `POST /api/blocks/pages/{id}/run-polish` - 处理整页
-- `POST /api/blocks/documents/{id}/run-polish` - 处理整个文档
+---
 
-### 导出
+## 🔧 Configuration
 
-- `POST /api/exports/documents/{id}/export` - 创建导出
-- `GET /api/exports/documents/{id}/exports` - 导出列表
-- `GET /api/exports/{id}/download` - 下载导出文件
+### OCR Parameters
 
-### 任务
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `maxPixels` | 4,200,000 | Max image resolution (~2048×2048) |
+| `layoutShapeMode` | `rect` | Bbox shape (`rect` or `poly`) |
+| `mergeTables` | `true` | Merge table cells |
+| `relevelTitles` | `true` | Normalize heading levels |
 
-- `GET /api/tasks/{id}` - 查询任务状态
+### LLM Correction
 
-## 环境变量
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `gpt_model` | `DeepSeek-V3` | OpenAI-compatible model |
+| `gpt_timeout` | 300s | Request timeout |
+| `gpt_max_retries` | 3 | Retry attempts for failed pages |
+| `gpt_retry_backoff_seconds` | 2.0s | Exponential backoff base |
 
-### 后端 (.env)
+---
 
-```
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ocr_platform
-REDIS_URL=redis://localhost:6379/0
-PADDLE_OCR_URL=http://127.0.0.1:8888/layout-parsing
-PADDLE_OCR_MODEL_NAME=PaddleOCR-VL-0.9B-history-sft
-PADDLE_OCR_MAX_CONCURRENCY=1
-GPT_API_KEY=replace-with-your-api-key
-GPT_BASE_URL=https://api.siliconflow.cn/v1
-GPT_MODEL=deepseek-ai/DeepSeek-V3
-```
+## 🛠️ Recent Improvements (2026-08-13)
 
-### 前端 (.env.local)
+### Fixed Issues
 
-```
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
+1. **Bbox Coordinate Mismatch** (1087/1110 pages affected)
+   - Root cause: PaddleOCR's downsampled `inputImage` overwriting high-res source
+   - Fix: Always use local high-resolution images; ensure `page.width/height` matches bbox coordinate space
+   - Impact: 5% offset eliminated
 
-## 注意事项
+2. **LLM TLS Fault Blocking**
+   - Root cause: Single-page failure aborted entire document processing
+   - Fix: Two-pass retry strategy — skip failed pages in first pass, compensate in second round
+   - Impact: Improved fault tolerance for intermittent network issues
 
-1. 确保 PaddleOCR-VL 服务已在 `http://127.0.0.1:8888` 启动；服务端部署见 `docs/ERNIEKIT_SERVER_DEPLOYMENT.md`
-2. GPT API 需要有效的 API Key
-3. 不要把真实 API Key 写入代码或提交到版本库；如曾提交，请立即撤销并重建
-4. 大文件处理可能需要较长时间，请耐心等待
+3. **Unnecessary Downsampling**
+   - Increased `maxPixels` from 1.5M to 4.2M to preserve 200 DPI scans
+   - Improved image quality for typical A4 documents
+
+### Enhancements
+
+- Better error logging for GPT connection failures
+- Exponential backoff tuning for retry stability
+- Sanitized default prompts in source code (production prompts via external files)
+
+---
+
+## 📊 Project Status
+
+- ✅ Core OCR pipeline
+- ✅ LLM-assisted correction
+- ✅ Web viewer with bbox overlay
+- ✅ Batch processing
+- ✅ Multi-format export
+- 🚧 Advanced search (planned)
+- 🚧 User annotation system (planned)
+
+---
+
+## 📄 License
+
+[MIT License](LICENSE)
+
+---
+
+## 🙏 Acknowledgments
+
+- **PaddleOCR Team** for the state-of-the-art OCR model
+- **DeepSeek AI** for the powerful language model
+- **Digital Humanities Community** for inspiration and feedback
+
+---
+
+## 📧 Contact
+
+For questions or collaboration:
+- **Author**: 相忘江湖的小余
+- **Email**: 1465739029@qq.com
+- **GitHub**: [@yumingjie0405](https://github.com/yumingjie0405)
+
+---
+
+<div align="center">
+  Made with ❤️ for Digital Humanities Research
+</div>
