@@ -1,0 +1,141 @@
+# ============================================================
+# 环境变量与密钥（严禁上传）
+# ============================================================
+.env
+.env.*
+!.env.example
+!*.env.example
+*.pem
+*.key
+secrets.*
+
+# Prompt 工程成果（不公开）
+backend/app/prompts/*.txt
+
+# ============================================================
+# 用户数据与运行时产物（storage 约 7GB，绝不上传）
+# ============================================================
+storage/uploads/*
+storage/pages/*
+storage/results/*
+storage/exports/*
+!storage/**/.gitkeep
+
+# OCR / PPT 生成产物（可重新生成）
+output/
+outputs/
+
+# 项目内部文档与工具脚本（不公开）
+docs/
+word/
+*.xlsx
+pdf_v2.py
+generate_ppt.py
+BUGFIX_*.md
+
+# ============================================================
+# Python
+# ============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# 测试与类型检查缓存
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.cache/
+
+# 数据库（本地 SQLite 等）
+*.db
+*.sqlite
+*.sqlite3
+
+# ============================================================
+# Node.js / Next.js（前端）
+# ============================================================
+node_modules/
+.next/
+out/
+build/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+.pnp
+.pnp.js
+
+# 前端日志
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ============================================================
+# 日志与临时文件
+# ============================================================
+*.log
+logs/
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# ============================================================
+# 操作系统
+# ============================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ============================================================
+# IDE / 编辑器
+# ============================================================
+.idea/
+*.iml
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Claude Code 本地配置与上下文
+.claude/
+
+# ============================================================
+# 其他
+# ============================================================
+*.doc~
+~$*
