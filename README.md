@@ -30,7 +30,9 @@ A digital humanities platform for digitizing, OCR processing, and full-text sear
 
 ## 🏗️ Architecture
 
-.![1786780189262](image/README/1786780189262.png)
+<div align="center">
+  <img src="./assets/Technical%20Route_eng.png" alt="Technical Route" width="100%">
+</div>
 
 ### Tech Stack
 
@@ -52,6 +54,22 @@ A digital humanities platform for digitizing, OCR processing, and full-text sear
 
 - PaddleOCR-VL 1.6 (Layout parsing + OCR)
 - DeepSeek-V4-Pro (Text correction)
+
+---
+
+## 🖼️ Effect Rendering
+
+<div align="center">
+  <img src="./assets/Effect%20rendering.png" alt="OCR Effect Rendering" width="100%">
+</div>
+
+---
+
+## 📦 Sample Export
+
+This document is a sample case exported by the system.
+
+[Download the sample DOCX](<./assets/sample-export/P1-140-China%20and%20Japan%20Duplicates%2C%2024%20Sep%201792%20-%2010%20Mar%201794.docx>)
 
 ---
 
