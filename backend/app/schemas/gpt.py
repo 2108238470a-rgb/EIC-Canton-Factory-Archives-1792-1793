@@ -1,15 +1,26 @@
 """Schemas for structured GPT processing."""
+
 from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 HistoricalRegionRole = Literal[
-    "body", "header", "footer", "title", "date", "signature",
-    "marginalia", "page_number", "table", "unknown",
+    "body",
+    "header",
+    "footer",
+    "title",
+    "date",
+    "signature",
+    "marginalia",
+    "page_number",
+    "table",
+    "unknown",
 ]
 BoundaryAssessment = Literal[
-    "possible_continuation", "unlikely_continuation", "indeterminate",
+    "possible_continuation",
+    "unlikely_continuation",
+    "indeterminate",
 ]
 
 
@@ -33,6 +44,7 @@ class GPTCompletionResultSchema(BaseModel):
 class GPTBlockProcessingResultSchema(BaseModel):
     """Processed block fields with aggregate token usage."""
 
+    quality_report: dict = Field(default_factory=dict)
     results: Dict[str, str]
     token_usage: TokenUsageSchema
 
@@ -116,6 +128,7 @@ class PageCorrectionResponseSchema(BaseModel):
 
 
 class PageCorrectionCallResultSchema(BaseModel):
+    quality_reports: dict[int, dict] = Field(default_factory=dict)
     """Validated page corrections with provider token usage."""
 
     blocks: List[PageCorrectionBlockOutputSchema]

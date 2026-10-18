@@ -10,6 +10,7 @@ from app.schemas import BlockResponse, BlockUpdate, TaskResponse, RunPolishReque
 from app.schemas.task import TaskCreate
 from app.models import TaskType
 from app.tasks import polish_block_task, polish_page_task, polish_document_task
+from app.tasks.gpt_tasks_batch import polish_document_batch_task
 from app.core import logger
 
 router = APIRouter(prefix="/blocks", tags=["blocks"])

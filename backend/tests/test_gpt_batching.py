@@ -1,4 +1,5 @@
 """Regression tests for page-batched historical OCR correction."""
+
 import importlib
 from pathlib import Path
 import unittest
@@ -56,6 +57,7 @@ class FakeBlockRepository:
         """Record the atomic update arguments."""
         self.update_args = (page_id, corrections, expected_raw_texts)
         return self.eligible
+
 
 def make_page(page_id: int, number: int, document_id: int = 1) -> SimpleNamespace:
     """Create a page-shaped test object."""
@@ -115,6 +117,7 @@ class GPTPageResponseTests(unittest.TestCase):
                 {1},
             )
 
+
 class HistoricalCandidateTests(unittest.TestCase):
     """Validate deterministic preservation and correction gates."""
 
@@ -140,9 +143,7 @@ class HistoricalCandidateTests(unittest.TestCase):
         }
         for raw, modernization in examples.items():
             with self.subTest(raw=raw):
-                self.assertEqual(
-                    _select_correction_candidate(raw, modernization), raw
-                )
+                self.assertEqual(_select_correction_candidate(raw, modernization), raw)
 
     def test_preserves_fact_bearing_title(self) -> None:
         raw = "appointed Secretary to the Secret and Superintending Committee"
@@ -162,9 +163,7 @@ class GPTPageTaskTests(unittest.TestCase):
             for index in range(5)
         ]
         target = make_block(101, "body ends without punctuation", page=page)
-        next_title = make_block(
-            111, "SECRET COMMITTEE", label="title", page=next_page
-        )
+        next_title = make_block(111, "SECRET COMMITTEE", label="title", page=next_page)
 
         request = _build_page_request(
             page,
@@ -180,7 +179,9 @@ class GPTPageTaskTests(unittest.TestCase):
         self.assertEqual(len(request.previous_page_context), ADJACENT_CONTEXT_BLOCKS)
         self.assertEqual(request.next_page_context[0].region_role, "title")
         self.assertEqual(request.next_boundary.assessment, "unlikely_continuation")
-        self.assertEqual(request.blocks[0].ocr_text_raw, "body ends without punctuation")
+        self.assertEqual(
+            request.blocks[0].ocr_text_raw, "body ends without punctuation"
+        )
         self.assertNotIn("SECRET COMMITTEE", request.blocks[0].ocr_text_raw)
 
     def test_document_references_require_target_overlap(self) -> None:
@@ -206,9 +207,7 @@ class GPTPageTaskTests(unittest.TestCase):
             [target, related, unrelated],
         )
 
-        reference_ids = {
-            block.block_id for block in request.document_reference_blocks
-        }
+        reference_ids = {block.block_id for block in request.document_reference_blocks}
         self.assertIn(related.id, reference_ids)
         self.assertNotIn(unrelated.id, reference_ids)
         self.assertEqual(
@@ -243,19 +242,24 @@ class GPTPageTaskTests(unittest.TestCase):
         previous_page = make_page(9, 1)
         page = make_page(10, 2)
         next_page = make_page(11, 3)
-        target = make_block(101, "target raw", page=page)
+        target = make_block(101, "tender more regular", page=page)
         previous = make_block(91, "previous evidence", page=previous_page)
         next_block = make_block(111, "next evidence", page=next_page)
         repo = FakeBlockRepository(
             {10: [target], 9: [previous], 11: [next_block]}, [target]
         )
         call_result = PageCorrectionCallResultSchema(
-            blocks=[PageCorrectionBlockOutputSchema(
-                block_id=101, ocr_text_corrected="target corrected"
-            )],
+            blocks=[
+                PageCorrectionBlockOutputSchema(
+                    block_id=101, ocr_text_corrected="render more regular"
+                )
+            ],
             token_usage=TokenUsageSchema(
-                prompt_tokens=10, completion_tokens=2, total_tokens=12,
-                calls=1, calls_with_usage=1,
+                prompt_tokens=10,
+                completion_tokens=2,
+                total_tokens=12,
+                calls=1,
+                calls_with_usage=1,
             ),
         )
 
@@ -267,11 +271,15 @@ class GPTPageTaskTests(unittest.TestCase):
 
         correction_call.assert_awaited_once()
         request = correction_call.await_args.args[0]
-        self.assertEqual(request.previous_page_context[0].original_ocr_text, "previous evidence")
-        self.assertEqual(request.next_page_context[0].original_ocr_text, "next evidence")
+        self.assertEqual(
+            request.previous_page_context[0].original_ocr_text, "previous evidence"
+        )
+        self.assertEqual(
+            request.next_page_context[0].original_ocr_text, "next evidence"
+        )
         self.assertEqual(
             repo.update_args,
-            (10, {101: "target corrected"}, {101: "target raw"}),
+            (10, {101: "render more regular"}, {101: "tender more regular"}),
         )
         self.assertEqual(result["processed"], 1)
         self.assertEqual(result["skipped"], 0)
@@ -302,9 +310,9 @@ class GPTClientLifecycleTests(unittest.IsolatedAsyncioTestCase):
         service = GPTService()
         create_completion = AsyncMock(
             return_value=SimpleNamespace(
-                choices=[SimpleNamespace(
-                    message=SimpleNamespace(content="corrected text")
-                )],
+                choices=[
+                    SimpleNamespace(message=SimpleNamespace(content="corrected text"))
+                ],
                 usage=None,
             )
         )
@@ -360,12 +368,12 @@ class GPTClientLifecycleTests(unittest.IsolatedAsyncioTestCase):
             async def __aexit__(self, exc_type, exc, traceback) -> None:
                 return None
 
-        with patch.object(service, "_create_client", return_value=TimeoutClient()), \
-                patch.object(settings, "gpt_timeout", 300), \
-                patch.object(settings, "gpt_max_retries", 2):
-            with self.assertRaisesRegex(
-                GPTServiceError, "read timeout: 300s, retries: 2"
-            ):
+        with patch.object(
+            service, "_create_client", return_value=TimeoutClient()
+        ), patch.object(settings, "gpt_timeout", 300), patch.object(
+            settings, "gpt_max_retries", 2
+        ):
+            with self.assertRaisesRegex(GPTServiceError, "timed out after 3 attempts"):
                 await service._request_completion(
                     "system", "private page text", "ocr_correction_page"
                 )
@@ -375,21 +383,23 @@ class GPTClientConfigurationTests(unittest.TestCase):
     """Validate explicit SDK timeout and retry settings."""
 
     def test_client_uses_configured_timeout_and_retries(self) -> None:
-        """Pass separate read timeout and retry count to the SDK."""
+        """Use separate read timeout and let the service own retries."""
         service = GPTService()
         sentinel = object()
         gpt_service_module = importlib.import_module("app.services.gpt_service")
-        with patch.object(settings, "gpt_api_key", "test-key"), \
-                patch.object(settings, "gpt_timeout", 321), \
-                patch.object(settings, "gpt_max_retries", 4), \
-                patch.object(gpt_service_module, "AsyncOpenAI", return_value=sentinel) as client_class:
+        with patch.object(settings, "gpt_api_key", "test-key"), patch.object(
+            settings, "gpt_timeout", 321
+        ), patch.object(settings, "gpt_max_retries", 4), patch.object(
+            gpt_service_module, "AsyncOpenAI", return_value=sentinel
+        ) as client_class:
             client = service._create_client()
 
         self.assertIs(client, sentinel)
         options = client_class.call_args.kwargs
         self.assertEqual(options["timeout"].read, 321.0)
         self.assertEqual(options["timeout"].connect, 30.0)
-        self.assertEqual(options["max_retries"], 4)
+        self.assertEqual(options["max_retries"], 0)
+        # Retry policy belongs to GPTService; SDK retries would multiply calls.
 
 
 class GPTPromptFallbackTests(unittest.IsolatedAsyncioTestCase):
@@ -399,11 +409,13 @@ class GPTPromptFallbackTests(unittest.IsolatedAsyncioTestCase):
         service = GPTService()
         request = PageCorrectionRequestSchema(
             page_number=1,
-            blocks=[PageCorrectionBlockInputSchema(
-                block_id=1,
-                block_index=0,
-                ocr_text_raw="publick service",
-            )],
+            blocks=[
+                PageCorrectionBlockInputSchema(
+                    block_id=1,
+                    block_index=0,
+                    ocr_text_raw="publick service",
+                )
+            ],
         )
         completion = GPTCompletionResultSchema(
             text='{"blocks":[{"block_id":1,"ocr_text_corrected":"publick service"}]}',
@@ -423,13 +435,12 @@ class GPTPromptFallbackTests(unittest.IsolatedAsyncioTestCase):
 
         system_prompt = completion_call.await_args.args[0]
         request_options = completion_call.await_args.kwargs
-        self.assertIn("do not polish or modernize", system_prompt)
+        self.assertIn("do not polish or modernize", system_prompt.lower())
         self.assertIn("publick", system_prompt)
         self.assertEqual(request_options["max_tokens"], settings.gpt_page_max_tokens)
         response_format = request_options["response_format"]
-        self.assertEqual(response_format["type"], "json_schema")
-        schema = response_format["json_schema"]["schema"]
-        self.assertFalse(schema["additionalProperties"])
+        self.assertEqual(response_format["type"], "json_object")
+        # Schema and exact block-ID validation remain server side.
         self.assertEqual(result.blocks[0].ocr_text_corrected, "publick service")
 
     async def test_page_correction_can_disable_structured_output(self) -> None:
@@ -437,51 +448,40 @@ class GPTPromptFallbackTests(unittest.IsolatedAsyncioTestCase):
         service = GPTService()
         request = PageCorrectionRequestSchema(
             page_number=1,
-            blocks=[PageCorrectionBlockInputSchema(
-                block_id=1,
-                block_index=0,
-                ocr_text_raw="publick service",
-            )],
+            blocks=[
+                PageCorrectionBlockInputSchema(
+                    block_id=1,
+                    block_index=0,
+                    ocr_text_raw="publick service",
+                )
+            ],
         )
         completion = GPTCompletionResultSchema(
             text='{"blocks":[{"block_id":1,"ocr_text_corrected":"publick service"}]}',
             token_usage=TokenUsageSchema(calls=1),
         )
 
-        with patch.object(settings, "gpt_structured_output", False), \
-                patch.object(
-                    service,
-                    "_request_completion",
-                    new=AsyncMock(return_value=completion),
-                ) as completion_call:
+        with patch.object(settings, "gpt_structured_output", False), patch.object(
+            service,
+            "_request_completion",
+            new=AsyncMock(return_value=completion),
+        ) as completion_call:
             await service.correct_ocr_page(request)
 
         self.assertIsNone(completion_call.await_args.kwargs["response_format"])
 
     def test_single_block_fallback_preserves_facts_and_forms(self) -> None:
         prompt = GPTService()._get_default_prompt("ocr_correction")
-        self.assertIn("tender/render", prompt)
         self.assertIn("publick", prompt)
-        self.assertIn("Secretary", prompt)
         self.assertIn("Modern-English rewriting is forbidden", prompt)
 
 
 class PromptContractTests(unittest.TestCase):
-    """Ensure historical restoration rules remain explicit in both prompts."""
+    def test_active_correction_policy_is_multilingual_and_does_not_invent_names(self):
+        from app.services.correction_quality import FAITHFUL_PROMPT
 
-    def test_prompts_cover_required_examples_and_preservation(self) -> None:
-        prompt_dir = Path(__file__).parents[1] / "app" / "prompts"
-        for filename in ("ocr_correction.txt", "ocr_correction_page.txt"):
-            prompt = (prompt_dir / filename).read_text(encoding="utf-8")
-            with self.subTest(filename=filename):
-                self.assertIn("tender more regular", prompt)
-                self.assertIn("well quality for executing that Office", prompt)
-                self.assertIn("publick", prompt)
-                self.assertIn("shew", prompt)
-                self.assertIn("Esqr.", prompt)
-                self.assertIn("appointed Secretary", prompt)
-                self.assertIn("modern", prompt.lower())
-
-
-if __name__ == "__main__":
-    unittest.main()
+        service = GPTService()
+        for mode in ["ocr_correction", "ocr_correction_page"]:
+            self.assertEqual(service._get_default_prompt(mode), FAITHFUL_PROMPT)
+        self.assertIn("Preserve all scripts", FAITHFUL_PROMPT)
+        self.assertNotIn("Sparkes", FAITHFUL_PROMPT)

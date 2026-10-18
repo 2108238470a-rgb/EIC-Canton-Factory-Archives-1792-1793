@@ -21,6 +21,8 @@ class Page(Base):
     id = Column(Integer, primary_key=True, index=True)
     document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
     page_number = Column(Integer, nullable=False)
+    original_page_label = Column(String(100), nullable=True)
+    folio_side = Column(String(16), nullable=True)
     image_path = Column(String(512), nullable=True)
     visualization_path = Column(String(512), nullable=True)
     markdown_content = Column(Text, nullable=True)
@@ -33,6 +35,7 @@ class Page(Base):
     # Relationships
     document = relationship("Document", back_populates="pages")
     blocks = relationship("Block", back_populates="page", cascade="all, delete-orphan")
+    evidence_spans = relationship("app.models.evidence_span.EvidenceSpan", back_populates="page", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Page(id={self.id}, document_id={self.document_id}, page_number={self.page_number})>"

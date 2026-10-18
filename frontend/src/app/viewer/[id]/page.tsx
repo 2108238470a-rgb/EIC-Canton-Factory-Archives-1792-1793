@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,18 @@ import { Document, Page, Block, Task } from "@/types";
 import { PageViewer } from "@/components/viewer/PageViewer";
 import { BlockPanel } from "@/components/viewer/BlockPanel";
 import { PageNavigator } from "@/components/viewer/PageNavigator";
-import { ArrowLeft, Loader2, LayoutPanelLeft, ScanText, BookText, FileText } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  LayoutPanelLeft,
+  ScanText,
+  BookText,
+  FileText,
+} from "lucide-react";
+import { apiUrl, request } from "@/lib/workbench";
+import { Evidence } from "@/types/workbench";
+import { EvidenceDialog } from "@/components/workbench/EvidenceDialog";
+import { AnnotationPanel } from "@/components/workbench/AnnotationPanel";
 import { cn } from "@/lib/utils";
 
 export default function ViewerPage() {
@@ -17,6 +28,11 @@ export default function ViewerPage() {
   const searchParams = useSearchParams();
   const documentId = Number(params.id);
   const initialPage = Number(searchParams.get("page")) || 1;
+  const initialBlockId = Number(searchParams.get("block")) || null;
+  const appliedBlockQuery = useRef(false);
+  const evidenceId = Number(searchParams.get("evidence")) || null;
+  const [linkedEvidence, setLinkedEvidence] = useState<Evidence | null>(null);
+  const [evidenceError, setEvidenceError] = useState("");
 
   const [document, setDocument] = useState<Document | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
@@ -27,8 +43,25 @@ export default function ViewerPage() {
   const [loading, setLoading] = useState(true);
   const [isPolishing, setIsPolishing] = useState(false);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<
+    "image" | "text" | "knowledge"
+  >(searchParams.get("from_annotation") ? "knowledge" : "image");
   const [showBlockList, setShowBlockList] = useState(true);
   const [readingMode, setReadingMode] = useState<"page" | "document">("page");
+
+  useEffect(() => {
+    appliedBlockQuery.current = false;
+    setCurrentPageNumber(initialPage);
+    setLinkedEvidence(null);
+    setEvidenceError("");
+    if (evidenceId)
+      request<Evidence>(`/workbench/evidence/${evidenceId}`)
+        .then((e) => {
+          if (e.document_id !== documentId) throw new Error("证据不属于此文档");
+          setLinkedEvidence(e);
+        })
+        .catch((e) => setEvidenceError(e.message));
+  }, [documentId, initialPage, initialBlockId, evidenceId]);
 
   const fetchDocumentData = useCallback(async () => {
     const doc = await documentApi.get(documentId);
@@ -39,22 +72,54 @@ export default function ViewerPage() {
     return { doc, pages: pagesResponse.items };
   }, [documentId]);
 
-  const fetchCurrentPageData = useCallback(async (pageNumber: number, availablePages?: Page[]) => {
-    const pageList = availablePages || pages;
-    if (pageList.length === 0) return null;
+  const fetchCurrentPageData = useCallback(
+    async (pageNumber: number, availablePages?: Page[]) => {
+      const pageList = availablePages || pages;
+      if (pageList.length === 0) return null;
 
-    const page = pageList.find((item) => item.page_number === pageNumber) || pageList[0];
-    if (!page) return null;
+      const page =
+        pageList.find((item) => item.page_number === pageNumber) || pageList[0];
+      if (!page) return null;
 
-    const pageDetail = await pageApi.get(page.id);
-    const blocksResponse = await pageApi.getBlocks(page.id);
-    const nextBlocks = blocksResponse.items;
+      const pageDetail = await pageApi.get(page.id);
+      const blocksResponse = await pageApi.getBlocks(page.id);
+      let nextBlocks = blocksResponse.items;
 
-    setCurrentPage(pageDetail);
-    setBlocks(nextBlocks);
-    setSelectedBlock((prev) => nextBlocks.find((item) => item.id === prev?.id) || nextBlocks[0] || null);
-    return { page: pageDetail, blocks: nextBlocks };
-  }, [pages]);
+      if (
+        linkedEvidence &&
+        linkedEvidence.page_id === page.id &&
+        linkedEvidence.validity !== "current"
+      ) {
+        const archived = await blockApi.get(linkedEvidence.block_id);
+        nextBlocks = [
+          {
+            ...archived,
+            bbox: linkedEvidence.bbox || archived.bbox,
+            ocr_text_raw: linkedEvidence.excerpt,
+            ocr_text_corrected: undefined,
+          },
+        ];
+      }
+      setCurrentPage(pageDetail);
+      setBlocks(nextBlocks);
+      setSelectedBlock((prev) => {
+        if (!appliedBlockQuery.current && initialBlockId) {
+          const queried = nextBlocks.find((item) => item.id === initialBlockId);
+          if (queried) {
+            appliedBlockQuery.current = true;
+            return queried;
+          }
+        }
+        return (
+          nextBlocks.find((item) => item.id === prev?.id) ||
+          nextBlocks[0] ||
+          null
+        );
+      });
+      return { page: pageDetail, blocks: nextBlocks };
+    },
+    [pages, initialBlockId, linkedEvidence],
+  );
 
   useEffect(() => {
     const fetchData = async () => {
@@ -94,60 +159,65 @@ export default function ViewerPage() {
     setReadingMode("page");
   }, []);
 
-  const runPolishTask = useCallback(async (taskPromise: Promise<Task>, refreshScope: "block" | "page" | "document", blockId?: number) => {
-    setIsPolishing(true);
-    try {
-      const task = await taskPromise;
-      setActiveTask(task);
-      await taskApi.poll(task.id, (updatedTask) => {
-        setActiveTask(updatedTask);
-      });
+  const runPolishTask = useCallback(
+    async (
+      taskPromise: Promise<Task>,
+      refreshScope: "block" | "page" | "document",
+      blockId?: number,
+    ) => {
+      setIsPolishing(true);
+      try {
+        const task = await taskPromise;
+        setActiveTask(task);
+        await taskApi.poll(task.id, (updatedTask) => {
+          setActiveTask(updatedTask);
+        });
 
-      if (refreshScope === "block" && blockId) {
-        const updatedBlock = await blockApi.get(blockId);
-        setBlocks((prev) => prev.map((item) => (item.id === blockId ? updatedBlock : item)));
-        setSelectedBlock(updatedBlock);
-      } else if (refreshScope === "page") {
-        await fetchCurrentPageData(currentPageNumber);
-      } else {
-        const { pages: refreshedPages } = await fetchDocumentData();
-        await fetchCurrentPageData(currentPageNumber, refreshedPages);
+        if (refreshScope === "block" && blockId) {
+          const updatedBlock = await blockApi.get(blockId);
+          setBlocks((prev) =>
+            prev.map((item) => (item.id === blockId ? updatedBlock : item)),
+          );
+          setSelectedBlock(updatedBlock);
+        } else if (refreshScope === "page") {
+          await fetchCurrentPageData(currentPageNumber);
+        } else {
+          const { pages: refreshedPages } = await fetchDocumentData();
+          await fetchCurrentPageData(currentPageNumber, refreshedPages);
+        }
+      } catch (error) {
+        console.error("Polish failed:", error);
+      } finally {
+        setIsPolishing(false);
       }
-    } catch (error) {
-      console.error("Polish failed:", error);
-    } finally {
-      setIsPolishing(false);
-    }
-  }, [currentPageNumber, fetchCurrentPageData, fetchDocumentData]);
+    },
+    [currentPageNumber, fetchCurrentPageData, fetchDocumentData],
+  );
 
   const handlePagePolish = useCallback(async () => {
     if (!currentPage) return;
-    await runPolishTask(pageApi.runPolish(currentPage.id, { modes: ["ocr_correction"] }), "page");
+    await runPolishTask(
+      pageApi.runPolish(currentPage.id, { modes: ["ocr_correction"] }),
+      "page",
+    );
   }, [currentPage, runPolishTask]);
 
   const handleDocumentPolish = useCallback(async () => {
-    await runPolishTask(documentApi.runPolish(documentId, { modes: ["ocr_correction"] }), "document");
+    await runPolishTask(
+      documentApi.runPolish(documentId, { modes: ["ocr_correction"] }),
+      "document",
+    );
   }, [documentId, runPolishTask]);
 
   const orderedBlockTexts = useMemo(() => {
     return blocks
       .slice()
-      .sort((a, b) => {
-        const ay = a.bbox?.[1] ?? 0;
-        const by = b.bbox?.[1] ?? 0;
-        if (ay !== by) return ay - by;
-        const ax = a.bbox?.[0] ?? 0;
-        const bx = b.bbox?.[0] ?? 0;
-        return ax - bx;
-      })
+      .sort((a, b) => a.block_index - b.block_index)
       .map((block) => ({
         id: block.id,
         label: block.block_label || "text",
         index: block.block_index + 1,
-        text:
-          block.ocr_text_corrected ||
-          block.ocr_text_raw ||
-          "",
+        text: block.ocr_text_corrected || block.ocr_text_raw || "",
       }))
       .filter((block) => block.text);
   }, [blocks]);
@@ -172,14 +242,23 @@ export default function ViewerPage() {
   }
 
   const currentPageMarkdown = currentPage?.markdown_content || "";
-  const fullMarkdown = document.full_markdown || pages.map((page) => page.markdown_content || "").filter(Boolean).join("\n\n");
+  const fullMarkdown =
+    document.full_markdown ||
+    pages
+      .map((page) => page.markdown_content || "")
+      .filter(Boolean)
+      .join("\n\n");
 
   return (
-    <div className="app-shell py-6 md:py-8">
-      <div className="mb-5 flex flex-col gap-4 rounded-[2rem] border border-white/70 bg-white/80 p-5 shadow-[0_20px_60px_-24px_rgba(15,23,42,0.22)] md:flex-row md:items-center md:justify-between">
+    <div className="app-shell reader-workspace py-4">
+      <div className="mb-3 flex shrink-0 flex-col gap-3 rounded-lg border border-border bg-card p-3 md:flex-row md:items-center md:justify-between">
         <div className="flex items-start gap-4">
           <Link href={`/documents/${documentId}`}>
-            <Button variant="outline" size="sm" className="rounded-full border-white/70 bg-white/80">
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-full border-border bg-white/80"
+            >
               <ArrowLeft className="mr-1 h-4 w-4" />
               返回
             </Button>
@@ -187,13 +266,16 @@ export default function ViewerPage() {
           <div>
             <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
               <ScanText className="h-3.5 w-3.5" />
-              {document.file_type === "pdf" ? "PDF 多页阅读器" : "单页图像阅读器"}
+              {document.file_type === "pdf"
+                ? "PDF 多页阅读器"
+                : "单页图像阅读器"}
             </div>
-            <h1 className="max-w-3xl text-xl font-semibold text-slate-900 md:text-2xl">
+            <h1 className="max-w-3xl break-all text-base font-semibold text-slate-900 md:text-lg">
               {document.original_filename}
             </h1>
             <p className="mt-1 text-sm text-slate-500">
-              共 {document.page_count} 页 · 当前第 {currentPageNumber} 页 · {blocks.length} 个区块
+              共 {document.page_count} 页 · 当前第 {currentPageNumber} 页 ·{" "}
+              {blocks.length} 个区块
             </p>
           </div>
         </div>
@@ -220,7 +302,7 @@ export default function ViewerPage() {
           <Button
             variant="outline"
             size="sm"
-            className="rounded-full border-white/70 bg-white/80"
+            className="rounded-full border-border bg-white/80"
             onClick={() => setShowBlockList((prev) => !prev)}
           >
             <LayoutPanelLeft className="mr-2 h-4 w-4" />
@@ -229,11 +311,70 @@ export default function ViewerPage() {
         </div>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_26rem]">
-        <div className="min-w-0">
+      {evidenceError && (
+        <p className="error-message" role="alert">
+          {evidenceError}
+        </p>
+      )}
+      {linkedEvidence && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded border p-3 text-sm">
+          <span>
+            {linkedEvidence.validity === "current"
+              ? "正在查看引用的证据"
+              : "历史证据视图：保留原文版本，当前内容可能已更新"}
+          </span>
+          <EvidenceDialog evidence={[linkedEvidence]} />
+          <Link
+            className="text-primary"
+            href={`/viewer/${documentId}?page=${currentPageNumber}`}
+          >
+            返回当前版本
+          </Link>
+        </div>
+      )}
+      <nav className="mb-4 flex gap-2 lg:hidden" aria-label="阅读器面板">
+        {(
+          [
+            ["image", "原图"],
+            ["text", "原文与译校"],
+            ["knowledge", "标注与知识"],
+          ] as const
+        ).map(([key, label]) => (
+          <Button
+            key={key}
+            variant={mobilePanel === key ? "default" : "outline"}
+            size="sm"
+            onClick={() => setMobilePanel(key)}
+          >
+            {label}
+          </Button>
+        ))}
+      </nav>
+      <div className="reader-columns grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,.9fr)]">
+        <div
+          className={cn(
+            "reader-column min-w-0 min-h-0 flex-col",
+            mobilePanel === "image" ? "flex" : "hidden lg:flex",
+          )}
+        >
           {currentPage && (
             <PageViewer
-              page={currentPage}
+              page={
+                linkedEvidence?.image_frozen &&
+                linkedEvidence.page_id === currentPage.id
+                  ? {
+                      ...currentPage,
+                      width: linkedEvidence.image_width || currentPage.width,
+                      height: linkedEvidence.image_height || currentPage.height,
+                    }
+                  : currentPage
+              }
+              imageUrlOverride={
+                linkedEvidence?.image_frozen &&
+                linkedEvidence.page_id === currentPage.id
+                  ? apiUrl(linkedEvidence.image_url)
+                  : undefined
+              }
               blocks={blocks}
               selectedBlockId={selectedBlock?.id || null}
               onBlockSelect={handleBlockSelect}
@@ -248,30 +389,39 @@ export default function ViewerPage() {
           )}
         </div>
 
-        <div className="flex min-h-[720px] flex-col overflow-hidden rounded-[2rem] border border-white/70 bg-white/85 shadow-[0_20px_60px_-24px_rgba(15,23,42,0.22)]">
+        <div
+          className={cn(
+            "reader-column min-w-0 min-h-0 flex-col overflow-hidden rounded-lg border bg-card",
+            mobilePanel === "text" ? "flex" : "hidden lg:flex",
+          )}
+        >
           {showBlockList && readingMode === "page" && (
-            <div className="border-b border-slate-200/80 px-5 py-4">
+            <div className="shrink-0 border-b border-slate-200/80 px-4 py-3">
               <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-base font-semibold text-slate-900">区块目录</h3>
+                <h3 className="text-base font-semibold text-slate-900">
+                  区块目录
+                </h3>
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
                   {blocks.length} blocks
                 </span>
               </div>
-              <div className="max-h-60 space-y-2 overflow-auto pr-1">
+              <div className="max-h-32 space-y-2 overflow-auto overscroll-contain pr-1">
                 {blocks.map((block) => (
                   <button
                     key={block.id}
                     type="button"
                     className={cn(
-                      "w-full rounded-2xl border px-4 py-3 text-left transition-all",
+                      "w-full rounded-md border px-4 py-3 text-left transition-all",
                       selectedBlock?.id === block.id
                         ? "border-primary/20 bg-primary/10 shadow-sm"
-                        : "border-slate-200 bg-white hover:border-primary/20 hover:bg-slate-50"
+                        : "border-slate-200 bg-white hover:border-primary/20 hover:bg-slate-50",
                     )}
                     onClick={() => handleBlockSelect(block)}
                   >
                     <div className="mb-1 flex items-center justify-between gap-3">
-                      <span className="text-sm font-medium text-slate-900">区块 {block.block_index + 1}</span>
+                      <span className="text-sm font-medium text-slate-900">
+                        区块 {block.block_index + 1}
+                      </span>
                       <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">
                         {block.block_label || "text"}
                       </span>
@@ -285,16 +435,20 @@ export default function ViewerPage() {
             </div>
           )}
 
-          <div className="min-h-0 flex-1">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {readingMode === "document" ? (
-              <div className="flex h-full flex-col bg-white/70">
+              <div className="flex min-h-0 h-full flex-col bg-white/70">
                 <div className="border-b border-slate-200 px-5 py-5">
                   <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
                     <BookText className="h-3.5 w-3.5" />
-                    {document.file_type === "pdf" ? "分页全文 OCR" : "坐标顺序全文 OCR"}
+                    {document.file_type === "pdf"
+                      ? "分页全文 OCR"
+                      : "坐标顺序全文 OCR"}
                   </div>
                   <h3 className="text-lg font-semibold text-slate-900">
-                    {document.file_type === "pdf" ? `第 ${currentPageNumber} 页全文` : "整页区块顺序结果"}
+                    {document.file_type === "pdf"
+                      ? `第 ${currentPageNumber} 页全文`
+                      : "整页区块顺序结果"}
                   </h3>
                   <p className="mt-1 text-sm text-slate-500">
                     {document.file_type === "pdf"
@@ -302,20 +456,26 @@ export default function ViewerPage() {
                       : "图片全文模式按原始区块坐标顺序排列，便于和原文位置对照。"}
                   </p>
                 </div>
-                <div className="flex-1 overflow-auto px-5 py-5">
-                  <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="min-h-0 flex-1 overflow-auto overscroll-contain px-5 py-5">
+                  <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
                     {orderedBlockTexts.length > 0 ? (
                       <div className="prose prose-sm max-w-none text-slate-700">
                         <p className="whitespace-pre-wrap leading-7">
-                          {orderedBlockTexts.map((block) => block.text).join("\n\n")}
+                          {orderedBlockTexts
+                            .map((block) => block.text)
+                            .join("\n\n")}
                         </p>
                       </div>
                     ) : fullMarkdown ? (
                       <div className="prose prose-sm max-w-none text-slate-700">
-                        <p className="whitespace-pre-wrap leading-7">{fullMarkdown}</p>
+                        <p className="whitespace-pre-wrap leading-7">
+                          {fullMarkdown}
+                        </p>
                       </div>
                     ) : (
-                      <p className="text-sm italic text-slate-400">暂无全文 OCR 结果</p>
+                      <p className="text-sm italic text-slate-400">
+                        暂无全文 OCR 结果
+                      </p>
                     )}
                   </div>
                 </div>
@@ -340,6 +500,31 @@ export default function ViewerPage() {
               />
             )}
           </div>
+        </div>
+        <div
+          className={cn(
+            "reader-column min-w-0 min-h-0 overflow-y-auto overscroll-contain",
+            mobilePanel !== "knowledge" && "hidden lg:block",
+          )}
+        >
+          {linkedEvidence?.validity !== undefined &&
+          linkedEvidence.validity !== "current" ? (
+            <div className="panel p-5 text-sm leading-7">
+              历史证据保留为只读。返回当前版本后可建立新的替代标注。
+            </div>
+          ) : (
+            <AnnotationPanel
+              block={selectedBlock}
+              documentId={documentId}
+              page={currentPage}
+              onBlockUpdated={(updated) => {
+                setBlocks((prev) =>
+                  prev.map((b) => (b.id === updated.id ? updated : b)),
+                );
+                setSelectedBlock(updated);
+              }}
+            />
+          )}
         </div>
       </div>
     </div>

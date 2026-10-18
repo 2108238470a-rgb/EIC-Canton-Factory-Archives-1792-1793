@@ -10,6 +10,8 @@ celery_app = Celery(
     include=[
         "app.tasks.ocr_tasks",
         "app.tasks.gpt_tasks",
+        "app.tasks.rag_tasks",
+        "app.tasks.knowledge_tasks",
     ],
 )
 

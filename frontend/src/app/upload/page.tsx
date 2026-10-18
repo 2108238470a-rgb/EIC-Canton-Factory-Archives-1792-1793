@@ -3,10 +3,24 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { documentApi } from "@/lib/api";
-import { Upload, FileText, X, ArrowRight, FileImage, Loader2, Clock3 } from "lucide-react";
+import {
+  Upload,
+  FileText,
+  X,
+  ArrowRight,
+  FileImage,
+  Loader2,
+  Clock3,
+} from "lucide-react";
 import { cn, formatFileSize } from "@/lib/utils";
 
 export default function UploadPage() {
@@ -36,16 +50,25 @@ export default function UploadPage() {
     }
   }, []);
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      validateAndSetFile(selectedFile);
-    }
-  }, []);
+  const handleFileSelect = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const selectedFile = e.target.files?.[0];
+      if (selectedFile) {
+        validateAndSetFile(selectedFile);
+      }
+    },
+    [],
+  );
 
   const validateAndSetFile = (selectedFile: File) => {
     setError(null);
-    const validTypes = ["application/pdf", "image/png", "image/jpeg", "image/jpg", "image/gif"];
+    const validTypes = [
+      "application/pdf",
+      "image/png",
+      "image/jpeg",
+      "image/jpg",
+      "image/gif",
+    ];
     if (!validTypes.includes(selectedFile.type)) {
       setError("请上传 PDF 或图片文件 (PNG, JPG, GIF)");
       return;
@@ -84,21 +107,29 @@ export default function UploadPage() {
       <div className="grid gap-8 lg:grid-cols-[0.75fr_1fr]">
         <div className="space-y-6">
           <div>
-            <p className="mb-3 text-sm font-medium uppercase tracking-[0.24em] text-primary/70">Upload Workspace</p>
+            <p className="mb-3 text-sm font-medium uppercase tracking-[0.24em] text-primary/70">
+              Upload Workspace
+            </p>
             <h1 className="section-title">上传待识别文档</h1>
             <p className="section-description mt-3">
-              支持 PDF 与常见图片格式。上传后可直接进入 OCR、版面分析与对照阅读流程。
+              支持 PDF 与常见图片格式。上传后可直接进入
+              OCR、版面分析与对照阅读流程。
             </p>
           </div>
 
           <div className="soft-card p-6">
             <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <div className="flex h-12 w-12 items-center justify-center rounded-md bg-primary/10 text-primary">
                 <FileImage className="h-6 w-6" />
               </div>
               <div className="space-y-2 text-sm text-slate-600">
-                <p className="font-medium text-slate-900">建议上传高质量扫描件</p>
-                <p>清晰的页面边缘、足够的对比度和完整的页码结构能提升 OCR 与版面解析质量。</p>
+                <p className="font-medium text-slate-900">
+                  建议上传高质量扫描件
+                </p>
+                <p>
+                  清晰的页面边缘、足够的对比度和完整的页码结构能提升 OCR
+                  与版面解析质量。
+                </p>
               </div>
             </div>
           </div>
@@ -115,10 +146,10 @@ export default function UploadPage() {
             {!file ? (
               <div
                 className={cn(
-                  "rounded-[2rem] border-2 border-dashed p-10 text-center transition-all",
+                  "rounded-lg border-2 border-dashed p-10 text-center transition-all",
                   isDragging
-                    ? "border-primary bg-primary/5 shadow-lg shadow-primary/10"
-                    : "border-slate-200 bg-slate-50/70 hover:border-primary/40 hover:bg-white"
+                    ? "border-primary bg-primary/5 shadow-none"
+                    : "border-slate-200 bg-slate-50/70 hover:border-primary/40 hover:bg-white",
                 )}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
@@ -132,22 +163,28 @@ export default function UploadPage() {
                   accept=".pdf,.png,.jpg,.jpeg,.gif"
                   onChange={handleFileSelect}
                 />
-                <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-3xl bg-primary/10 text-primary">
+                <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-lg bg-primary/10 text-primary">
                   <Upload className="h-8 w-8" />
                 </div>
-                <p className="text-xl font-semibold text-slate-900">拖拽文件到此处，或点击选择</p>
-                <p className="mt-2 text-sm text-slate-500">支持 PDF、PNG、JPG、GIF 格式</p>
+                <p className="text-xl font-semibold text-slate-900">
+                  拖拽文件到此处，或点击选择
+                </p>
+                <p className="mt-2 text-sm text-slate-500">
+                  支持 PDF、PNG、JPG、GIF 格式
+                </p>
               </div>
             ) : (
               <div className="space-y-5">
-                <div className="flex items-center justify-between rounded-[1.5rem] border border-slate-200 bg-slate-50/80 p-4">
+                <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/80 p-4">
                   <div className="flex items-center gap-4">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-md bg-primary/10 text-primary">
                       <FileText className="h-6 w-6" />
                     </div>
                     <div>
                       <p className="font-medium text-slate-900">{file.name}</p>
-                      <p className="text-sm text-slate-500">{formatFileSize(file.size)}</p>
+                      <p className="text-sm text-slate-500">
+                        {formatFileSize(file.size)}
+                      </p>
                     </div>
                   </div>
                   {!isUploading && (
@@ -158,7 +195,7 @@ export default function UploadPage() {
                 </div>
 
                 {isUploading && (
-                  <div className="space-y-3 rounded-[1.5rem] border border-primary/15 bg-primary/5 p-4">
+                  <div className="space-y-3 rounded-lg border border-primary/15 bg-primary/5 p-4">
                     <Progress value={uploadProgress} />
                     <div className="flex items-center justify-between text-sm text-slate-600">
                       <span className="inline-flex items-center gap-2">
@@ -173,14 +210,19 @@ export default function UploadPage() {
                         接下来
                       </div>
                       <p>
-                        上传完成后将跳转到文档详情页，那里会展示真实 OCR 处理进度与页数阶段信息。
+                        上传完成后将跳转到文档详情页，那里会展示真实 OCR
+                        处理进度与页数阶段信息。
                       </p>
                     </div>
                   </div>
                 )}
 
                 {!isUploading && (
-                  <Button className="w-full rounded-full py-6 text-base shadow-lg shadow-primary/20" size="lg" onClick={handleUpload}>
+                  <Button
+                    className="w-full rounded-full py-6 text-base shadow-none"
+                    size="lg"
+                    onClick={handleUpload}
+                  >
                     开始上传并进入处理流程
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
@@ -189,7 +231,7 @@ export default function UploadPage() {
             )}
 
             {error && (
-              <div className="mt-4 rounded-2xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
+              <div className="mt-4 rounded-md border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
                 {error}
               </div>
             )}

@@ -3,7 +3,7 @@ import enum
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Float, Enum, JSON
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, ForeignKey, Text, Float, Enum, JSON
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -33,6 +33,8 @@ class Block(Base):
     bbox = Column(JSON, nullable=False)  # [x1, y1, x2, y2]
     confidence = Column(Float, nullable=True)
 
+    retired = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
+
     # OCR and processed text
     ocr_text_raw = Column(Text, nullable=True)
     ocr_text_corrected = Column(Text, nullable=True)
@@ -49,6 +51,8 @@ class Block(Base):
 
     # Relationships
     page = relationship("Page", back_populates="blocks")
+    source_unit_spans = relationship("SourceUnitSpan", back_populates="block", cascade="all, delete-orphan")
+    text_revisions = relationship("TextRevision", back_populates="block", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Block(id={self.id}, page_id={self.page_id}, label={self.block_label})>"

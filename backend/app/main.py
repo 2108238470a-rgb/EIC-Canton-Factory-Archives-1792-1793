@@ -1,14 +1,15 @@
 """FastAPI application entry point."""
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import inspect, text
+from sqlalchemy import text
 
 from app.config import settings
-from app.database import engine, Base
+from app.database import engine
 from app.core import logger, AppException
 from app.services.paddle_service import paddle_service
 from app.utils import ensure_directories
@@ -19,33 +20,33 @@ from app.api.routers import (
     tasks_router,
     exports_router,
 )
+from app.workbench.api import router as knowledge_router
+from app.workbench.compat import router as legacy_router
+from app.rag.api import router as rag_router
 
 
-def _ensure_schema_compatibility() -> None:
-    """Apply lightweight schema compatibility fixes for local development."""
-    inspector = inspect(engine)
+def _ensure_pgvector_extension() -> None:
+    """Ensure pgvector extension is enabled before any table operations."""
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        logger.info("pgvector extension enabled")
+    except Exception as e:
+        logger.warning(f"Could not enable pgvector extension: {e}")
 
-    if inspector.has_table("documents"):
-        columns = {column["name"] for column in inspector.get_columns("documents")}
-        if "full_markdown" not in columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE documents ADD COLUMN full_markdown TEXT"))
-            logger.info("Added missing documents.full_markdown column")
 
-    if inspector.has_table("blocks"):
-        columns = {column["name"] for column in inspector.get_columns("blocks")}
-        if "ocr_correction_source_text" not in columns:
-            with engine.begin() as connection:
-                connection.execute(
-                    text("ALTER TABLE blocks ADD COLUMN ocr_correction_source_text TEXT")
-                )
-                connection.execute(
-                    text(
-                        "UPDATE blocks SET ocr_correction_source_text = ocr_text_raw "
-                        "WHERE ocr_text_corrected IS NOT NULL"
-                    )
-                )
-            logger.info("Added and backfilled blocks.ocr_correction_source_text column")
+def _run_migrations() -> None:
+    """Run Alembic migrations programmatically."""
+    from alembic.config import Config
+    from alembic import command
+    from pathlib import Path
+
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    config.set_main_option(
+        "script_location", str(Path(__file__).resolve().parents[1] / "alembic")
+    )
+    command.upgrade(config, "head")
+    logger.info("Database migrations applied successfully")
 
 
 @asynccontextmanager
@@ -54,10 +55,15 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting OCR Platform API...")
 
-    # Create database tables
-    Base.metadata.create_all(bind=engine)
-    _ensure_schema_compatibility()
-    logger.info("Database tables created")
+    # Ensure pgvector extension is enabled first
+    _ensure_pgvector_extension()
+
+    # Run migrations instead of create_all
+    _run_migrations()
+
+    # Apply compatibility fixes
+    # All schema changes are managed by Alembic.
+    logger.info("Database schema initialized")
 
     # Ensure storage directories exist
     ensure_directories()
@@ -100,10 +106,14 @@ async def app_exception_handler(request: Request, exc: AppException):
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     """Handle general exceptions."""
-    logger.error(f"Unhandled exception: {exc}")
+    logger.exception(
+        "Unhandled request error method=%s path=%s", request.method, request.url.path
+    )
     return JSONResponse(
         status_code=500,
-        content={"error": {"message": "Internal server error", "code": "INTERNAL_ERROR"}},
+        content={
+            "error": {"message": "Internal server error", "code": "INTERNAL_ERROR"}
+        },
     )
 
 
@@ -116,6 +126,9 @@ app.include_router(pages_router, prefix="/api")
 app.include_router(blocks_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
 app.include_router(exports_router, prefix="/api")
+app.include_router(knowledge_router, prefix="/api/v2")
+app.include_router(rag_router, prefix="/api/v2")
+app.include_router(legacy_router, prefix="/api/v2")
 
 
 @app.get("/")

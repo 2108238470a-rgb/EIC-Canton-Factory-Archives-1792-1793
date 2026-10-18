@@ -37,11 +37,11 @@ export function PageNavigator({
   };
 
   return (
-    <div className="mt-4 flex flex-col gap-3 rounded-[1.5rem] border border-white/70 bg-white/80 px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+    <div className="mt-2 flex shrink-0 flex-wrap gap-2 rounded-lg border border-border bg-white/80 px-2 py-2 shadow-none items-center justify-between">
       <Button
         variant="outline"
         size="sm"
-        className="rounded-full border-white/70 bg-white/80"
+        className="rounded-full border-border bg-white/80"
         disabled={currentPage <= 1}
         onClick={() => onPageChange(currentPage - 1)}
       >
@@ -49,11 +49,7 @@ export function PageNavigator({
         上一页
       </Button>
 
-      <div className="flex flex-wrap items-center justify-center gap-3 rounded-[1.25rem] bg-slate-100 px-4 py-2 text-sm text-slate-600">
-        <div className="inline-flex items-center gap-2">
-          <FileText className="h-4 w-4" />
-          <span className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">Page</span>
-        </div>
+      <div className="flex flex-wrap items-center justify-center gap-1 rounded-md bg-muted px-2 py-1 text-sm text-slate-600">
         <div className="flex items-center gap-2">
           <input
             type="number"
@@ -76,7 +72,7 @@ export function PageNavigator({
       <Button
         variant="outline"
         size="sm"
-        className="rounded-full border-white/70 bg-white/80"
+        className="rounded-full border-border bg-white/80"
         disabled={currentPage >= totalPages}
         onClick={() => onPageChange(currentPage + 1)}
       >

@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  distDir: process.env.NEXT_DIST_DIR || ".next",
+  // Grounded answers may take longer than Next's default 30-second proxy budget.
+  // Backend generation is bounded at 150 seconds, leaving time for retrieval.
+  experimental: { proxyTimeout: 210000 },
   images: {
     remotePatterns: [
       {

@@ -8,6 +8,7 @@ import { Loader2, ScanText, ImageIcon } from "lucide-react";
 
 interface PageViewerProps {
   page: Page;
+  imageUrlOverride?: string;
   blocks: Block[];
   selectedBlockId: number | null;
   onBlockSelect: (block: Block) => void;
@@ -22,6 +23,7 @@ interface RenderedImageRect {
 
 export function PageViewer({
   page,
+  imageUrlOverride,
   blocks,
   selectedBlockId,
   onBlockSelect,
@@ -29,18 +31,20 @@ export function PageViewer({
   const stageRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
-  const [renderedImageRect, setRenderedImageRect] = useState<RenderedImageRect>({
-    width: 0,
-    height: 0,
-    left: 0,
-    top: 0,
-  });
+  const [renderedImageRect, setRenderedImageRect] = useState<RenderedImageRect>(
+    {
+      width: 0,
+      height: 0,
+      left: 0,
+      top: 0,
+    },
+  );
   const [imageLoaded, setImageLoaded] = useState(false);
 
   useEffect(() => {
     setImageLoaded(false);
     setRenderedImageRect({ width: 0, height: 0, left: 0, top: 0 });
-  }, [page.id]);
+  }, [page.id, imageUrlOverride]);
 
   useEffect(() => {
     if (!imageLoaded) return;
@@ -74,7 +78,7 @@ export function PageViewer({
     };
   }, [imageLoaded, page.id]);
 
-  const imageUrl = pageApi.getImageUrl(page.id);
+  const imageUrl = imageUrlOverride || pageApi.getImageUrl(page.id);
   // Trust the API's page.width/height — they now match the stored high-res image
   // and the bbox coordinate canvas. Using naturalWidth would break alignment if
   // the browser scales the image differently.
@@ -82,10 +86,12 @@ export function PageViewer({
   const imageHeight = page.height || 1000;
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden rounded-[2rem] border border-white/70 bg-white/80 shadow-[0_20px_60px_-24px_rgba(15,23,42,0.25)]">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-white/80 shadow-none">
       <div className="flex flex-col gap-3 border-b border-slate-200/80 px-5 py-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-sm font-medium text-slate-900">第 {page.page_number} 页</p>
+          <p className="text-sm font-medium text-slate-900">
+            第 {page.page_number} 页
+          </p>
           <p className="text-xs text-slate-500">
             原始尺寸 {imageWidth} × {imageHeight} · {blocks.length} 个识别区块
           </p>
@@ -104,7 +110,7 @@ export function PageViewer({
 
       <div
         ref={stageRef}
-        className="relative flex min-h-[520px] flex-1 bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.08),transparent_40%),linear-gradient(180deg,#f8fafc,#eef2ff)] p-4 md:p-6"
+        className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-muted/40 p-3"
       >
         {!imageLoaded && (
           <div className="absolute inset-0 flex items-center justify-center">
@@ -114,14 +120,14 @@ export function PageViewer({
 
         <div
           ref={frameRef}
-          className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[1.5rem] border border-white/60 bg-white/70 shadow-inner"
+          className="relative flex w-full items-start justify-center rounded border border-border bg-white"
         >
           <img
             key={page.id}
             ref={imageRef}
             src={imageUrl}
             alt={`Page ${page.page_number}`}
-            className="max-h-full max-w-full object-contain"
+            className="h-auto w-full object-contain"
             onLoad={() => {
               setImageLoaded(true);
             }}

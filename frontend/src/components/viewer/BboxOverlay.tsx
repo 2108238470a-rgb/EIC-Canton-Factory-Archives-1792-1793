@@ -70,7 +70,7 @@ export function BboxOverlay({
             "group absolute overflow-visible rounded-md border-2 pointer-events-auto transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2",
             getLabelColor(block.block_label),
             selectedBlockId === block.id
-              ? "border-primary bg-primary/15 shadow-[0_0_0_4px_rgba(99,102,241,0.18)]"
+              ? "border-primary bg-primary/15 shadow-none"
               : "hover:border-primary/80 hover:bg-primary/10"
           )}
           style={getBlockStyle(block)}

@@ -1,49 +1,68 @@
 "use client";
-
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
-import { FileText, Upload, Home, Sparkles } from "lucide-react";
-
+import { BookOpen } from "lucide-react";
 export function Header() {
   const pathname = usePathname();
-
-  const navItems = [
-    { href: "/", label: "首页", icon: Home },
-    { href: "/upload", label: "上传", icon: Upload },
-    { href: "/documents", label: "文档列表", icon: FileText },
-  ];
-
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const update = () =>
+      document.documentElement.style.setProperty(
+        "--app-header-height",
+        `${el.getBoundingClientRect().height}px`,
+      );
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   return (
-    <header className="sticky top-0 z-50 border-b border-white/60 bg-white/70 backdrop-blur-xl">
-      <div className="app-shell flex h-20 items-center justify-between gap-6">
+    <header
+      ref={headerRef}
+      className="site-header sticky top-0 z-50 border-b bg-background/95"
+    >
+      <div className="app-shell flex flex-col gap-3 py-4 md:flex-row md:items-center md:justify-between">
         <Link href="/" className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
-            <Sparkles className="h-5 w-5" />
-          </div>
+          <span className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <BookOpen className="h-5 w-5" />
+          </span>
           <div>
-            <p className="text-sm font-medium text-primary/80">Digital Humanities OCR</p>
-            <p className="text-lg font-semibold tracking-tight text-slate-900">OCR 翻译平台</p>
+            <p className="text-sm font-semibold tracking-[.08em]">
+              广州商馆档案
+            </p>
+            <p className="mt-1 text-[9px] uppercase tracking-[.16em] text-muted-foreground">
+              Canton Archives · Research
+            </p>
           </div>
         </Link>
-
-        <nav className="flex items-center gap-2 rounded-full border border-white/70 bg-white/75 p-1.5 shadow-sm">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href;
+        <nav
+          aria-label="主导航"
+          className="flex gap-4 overflow-x-auto sm:gap-7"
+        >
+          {[
+            ["/", "工作台"],
+            ["/documents", "档案库"],
+            ["/research", "证据检索"],
+            ["/knowledge", "知识库"],
+            ["/reviews", "审核"],
+          ].map(([href, label]) => {
+            const active =
+              href === "/"
+                ? pathname === "/"
+                : pathname.startsWith(href) ||
+                  (href === "/documents" &&
+                    (pathname.startsWith("/viewer") || pathname === "/upload"));
             return (
               <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all",
-                  isActive
-                    ? "bg-slate-900 text-white shadow-sm"
-                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                )}
+                key={href}
+                href={href}
+                aria-current={active ? "page" : undefined}
+                className={`whitespace-nowrap border-b-2 px-1 py-2 text-[13px] transition ${active ? "border-primary font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
               >
-                <Icon className="h-4 w-4" />
-                <span>{item.label}</span>
+                {label}
               </Link>
             );
           })}

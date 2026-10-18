@@ -1,4 +1,5 @@
 """Document repository."""
+
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
@@ -29,17 +30,30 @@ class DocumentRepository:
         self,
         skip: int = 0,
         limit: int = 20,
-        status: Optional[DocumentStatus] = None
+        status: Optional[DocumentStatus] = None,
+        archived: bool = False,
     ) -> List[Document]:
         """Get all documents with pagination."""
-        query = self.db.query(Document)
+        query = self.db.query(Document).filter(
+            Document.archived_at.is_not(None)
+            if archived
+            else Document.archived_at.is_(None)
+        )
         if status:
             query = query.filter(Document.status == status)
-        return query.order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
+        return (
+            query.order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
+        )
 
-    def count(self, status: Optional[DocumentStatus] = None) -> int:
+    def count(
+        self, status: Optional[DocumentStatus] = None, archived: bool = False
+    ) -> int:
         """Count documents."""
-        query = self.db.query(Document)
+        query = self.db.query(Document).filter(
+            Document.archived_at.is_not(None)
+            if archived
+            else Document.archived_at.is_(None)
+        )
         if status:
             query = query.filter(Document.status == status)
         return query.count()
@@ -68,7 +82,12 @@ class DocumentRepository:
         self.db.commit()
         return True
 
-    def update_status(self, document_id: int, status: DocumentStatus, error_message: Optional[str] = None) -> Optional[Document]:
+    def update_status(
+        self,
+        document_id: int,
+        status: DocumentStatus,
+        error_message: Optional[str] = None,
+    ) -> Optional[Document]:
         """Update document status."""
         document = self.get_by_id(document_id)
         if not document:

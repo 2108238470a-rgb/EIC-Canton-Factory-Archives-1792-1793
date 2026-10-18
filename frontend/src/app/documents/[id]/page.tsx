@@ -78,7 +78,7 @@ export default function DocumentDetailPage() {
 
   const handleExport = async (
     format: "json" | "markdown" | "txt" | "docx",
-    textMode?: "ocr_raw" | "llm_polished"
+    textMode?: "ocr_raw" | "llm_polished",
   ) => {
     try {
       const exportResult = await exportApi.create(documentId, {
@@ -119,7 +119,10 @@ export default function DocumentDetailPage() {
   return (
     <div className="container py-10">
       <div className="mb-6">
-        <Link href="/documents" className="text-sm text-muted-foreground hover:text-foreground">
+        <Link
+          href="/documents"
+          className="text-sm text-muted-foreground hover:text-foreground"
+        >
           ← 返回列表
         </Link>
       </div>
@@ -133,7 +136,9 @@ export default function DocumentDetailPage() {
                   <FileText className="h-6 w-6" />
                   <span>{document.original_filename}</span>
                 </CardTitle>
-                <span className={`px-3 py-1 rounded-full text-sm ${getStatusColor(document.status)}`}>
+                <span
+                  className={`px-3 py-1 rounded-full text-sm ${getStatusColor(document.status)}`}
+                >
                   {getStatusText(document.status)}
                 </span>
               </div>
@@ -165,7 +170,7 @@ export default function DocumentDetailPage() {
               )}
 
               {task && (
-                <div className="mt-5 space-y-4 rounded-2xl border border-primary/15 bg-primary/5 p-4">
+                <div className="mt-5 space-y-4 rounded-md border border-primary/15 bg-primary/5 p-4">
                   <div className="flex items-center justify-between text-sm font-medium text-slate-700">
                     <span>处理进度</span>
                     <span>{task.progress}%</span>
@@ -214,7 +219,9 @@ export default function DocumentDetailPage() {
                       <div className="aspect-[3/4] bg-muted rounded flex items-center justify-center mb-2">
                         <FileText className="h-8 w-8 text-muted-foreground" />
                       </div>
-                      <p className="text-sm text-center">第 {page.page_number} 页</p>
+                      <p className="text-sm text-center">
+                        第 {page.page_number} 页
+                      </p>
                     </Link>
                   ))}
                 </div>
@@ -244,7 +251,8 @@ export default function DocumentDetailPage() {
                 </Button>
               )}
 
-              {(document.status === "ocr_completed" || document.status === "completed") && (
+              {(document.status === "ocr_completed" ||
+                document.status === "completed") && (
                 <>
                   <Link href={`/viewer/${documentId}`} className="block">
                     <Button className="w-full" variant="outline">
@@ -267,7 +275,8 @@ export default function DocumentDetailPage() {
             </CardContent>
           </Card>
 
-          {(document.status === "ocr_completed" || document.status === "completed") && (
+          {(document.status === "ocr_completed" ||
+            document.status === "completed") && (
             <Card>
               <CardHeader>
                 <CardTitle>导出</CardTitle>

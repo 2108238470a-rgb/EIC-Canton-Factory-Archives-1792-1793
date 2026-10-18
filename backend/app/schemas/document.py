@@ -1,4 +1,5 @@
 """Document schemas."""
+
 from datetime import datetime
 from typing import Optional, List
 
@@ -9,12 +10,14 @@ from app.models.document import DocumentStatus, DocumentType
 
 class DocumentBase(BaseModel):
     """Base document schema."""
+
     filename: str
     original_filename: str
 
 
 class DocumentCreate(BaseModel):
     """Schema for document creation (internal use)."""
+
     filename: str
     original_filename: str
     file_path: str
@@ -24,6 +27,7 @@ class DocumentCreate(BaseModel):
 
 class DocumentUpdate(BaseModel):
     """Schema for document update."""
+
     status: Optional[DocumentStatus] = None
     page_count: Optional[int] = None
     full_markdown: Optional[str] = None
@@ -32,7 +36,10 @@ class DocumentUpdate(BaseModel):
 
 class DocumentResponse(BaseModel):
     """Schema for document response."""
+
     id: int
+    archived_at: Optional[datetime] = None
+    processing_summary: dict = Field(default_factory=dict)
     filename: str
     original_filename: str
     file_type: DocumentType
@@ -50,6 +57,7 @@ class DocumentResponse(BaseModel):
 
 class DocumentListResponse(BaseModel):
     """Schema for document list response."""
+
     items: List[DocumentResponse]
     total: int
     page: int
@@ -58,6 +66,7 @@ class DocumentListResponse(BaseModel):
 
 class DocumentDetailResponse(DocumentResponse):
     """Schema for document detail response with pages."""
+
     pages: List["PageBriefResponse"] = []
 
     class Config:
@@ -66,4 +75,5 @@ class DocumentDetailResponse(DocumentResponse):
 
 # Import here to avoid circular imports
 from app.schemas.page import PageBriefResponse
+
 DocumentDetailResponse.model_rebuild()

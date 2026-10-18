@@ -1,4 +1,5 @@
 """Document model."""
+
 import enum
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
 
 class DocumentStatus(str, enum.Enum):
     """Document processing status."""
+
     PENDING = "pending"
     PROCESSING = "processing"
     OCR_COMPLETED = "ocr_completed"
@@ -26,6 +28,7 @@ class DocumentStatus(str, enum.Enum):
 
 class DocumentType(str, enum.Enum):
     """Document file type."""
+
     PDF = "pdf"
     IMAGE = "image"
 
@@ -46,13 +49,31 @@ class Document(Base):
     full_markdown = Column(Text, nullable=True)
     status = Column(Enum(DocumentStatus), default=DocumentStatus.PENDING)
     error_message = Column(Text, nullable=True)
+    archived_at = Column(DateTime, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    pages = relationship("Page", back_populates="document", cascade="all, delete-orphan")
-    tasks = relationship("Task", back_populates="document", cascade="all, delete-orphan")
-    exports = relationship("Export", back_populates="document", cascade="all, delete-orphan")
+    pages = relationship(
+        "Page", back_populates="document", cascade="all, delete-orphan"
+    )
+    tasks = relationship(
+        "Task", back_populates="document", cascade="all, delete-orphan"
+    )
+    exports = relationship(
+        "Export", back_populates="document", cascade="all, delete-orphan"
+    )
+    archival_metadata = relationship(
+        "ArchivalMetadata",
+        back_populates="document",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    extraction_runs = relationship(
+        "ExtractionRun", back_populates="document", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
-        return f"<Document(id={self.id}, filename={self.filename}, status={self.status})>"
+        return (
+            f"<Document(id={self.id}, filename={self.filename}, status={self.status})>"
+        )

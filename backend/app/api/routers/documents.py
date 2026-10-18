@@ -1,4 +1,5 @@
 """Document API routes."""
+
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
@@ -6,6 +7,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.services.document_progress import processing_summaries
 from app.services import DocumentService
 from app.schemas import (
     DocumentResponse,
@@ -50,13 +52,20 @@ def list_documents(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: Optional[DocumentStatus] = None,
+    archived: bool = False,
     db: Session = Depends(get_db),
 ):
     """List all documents with pagination."""
     service = DocumentService(db)
-    documents, total = service.get_documents(page, page_size, status)
+    documents, total = service.get_documents(page, page_size, status, archived)
+    summaries = processing_summaries(db, [d.id for d in documents])
     return DocumentListResponse(
-        items=documents,
+        items=[
+            DocumentResponse.model_validate(d).model_copy(
+                update={"processing_summary": summaries[d.id]}
+            )
+            for d in documents
+        ],
         total=total,
         page=page,
         page_size=page_size,
@@ -73,7 +82,11 @@ def get_document(
     document = service.get_document(document_id)
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    return document
+    return DocumentDetailResponse.model_validate(document).model_copy(
+        update={
+            "processing_summary": processing_summaries(db, [document_id])[document_id]
+        }
+    )
 
 
 @router.delete("/{document_id}")
@@ -85,7 +98,14 @@ def delete_document(
     service = DocumentService(db)
     if not service.delete_document(document_id):
         raise HTTPException(status_code=404, detail="Document not found")
-    return {"message": "Document deleted"}
+    return {"message": "文档已移入回收站，已有引用和文件保留，可随时恢复"}
+
+
+@router.post("/{document_id}/restore")
+def restore_document(document_id: int, db: Session = Depends(get_db)):
+    if not DocumentService(db).restore_document(document_id):
+        raise HTTPException(404, "文档不存在")
+    return {"message": "文档已恢复"}
 
 
 @router.post("/{document_id}/run-ocr", response_model=TaskResponse)
