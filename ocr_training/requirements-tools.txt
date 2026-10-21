@@ -1,0 +1,3 @@
+# Annotation preparation/configuration only; does not install a training framework.
+Pillow>=10.2
+PyYAML>=6.0

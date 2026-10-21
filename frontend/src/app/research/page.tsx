@@ -19,6 +19,9 @@ import {
   Loader2,
   SlidersHorizontal,
   BookOpen,
+  Sparkles,
+  ShieldCheck,
+  Compass,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IndexStatusBar } from "@/components/rag/IndexStatusBar";
@@ -50,7 +53,8 @@ const uid = () =>
     : `${Date.now()}-${Math.random()}`;
 function parseScope(p: URLSearchParams): Scope {
   return {
-    mode: p.get("mode") === "explore" ? "explore" : "verified",
+    mode: p.get("mode") === "verified" ? "verified" : "explore",
+    answer_style: p.get("style") === "research" ? "research" : "guide",
     retrieval: (["keyword", "semantic", "hybrid"].includes(
       p.get("retrieval") || "",
     )
@@ -82,6 +86,7 @@ function writeURL(scope: Scope, all: boolean, view: string, q = "") {
   const p = new URLSearchParams({
     view,
     mode: scope.mode,
+    style: scope.answer_style || "guide",
     retrieval: scope.retrieval || "hybrid",
   });
   if (!all) p.set("range", "selected");
@@ -169,11 +174,28 @@ function ResearchWorkspace() {
         .map((d) => d.id);
   const effectiveScope: Scope = {
     ...scope,
+    answer_style: scope.answer_style || "guide",
     document_id: undefined,
     document_ids: checkedIds,
   };
   const noDocuments = !documentsLoaded || !checkedIds.length;
   const scopeLabel = `${checkedIds.length} 份文献 · ${available.filter((d) => checkedIds.includes(d.id)).reduce((n, d) => n + d.indexed, 0)} 个已索引区块`;
+  const selectedDocuments = available.filter((d) => checkedIds.includes(d.id));
+  const hasReviewCounts =
+    selectedDocuments.length > 0 &&
+    selectedDocuments.every(
+      (d) =>
+        typeof d.approved_chunks === "number" &&
+        typeof d.current_chunks === "number",
+    );
+  const approvedCount = selectedDocuments.reduce(
+    (n, d) => n + (d.approved_chunks || 0),
+    0,
+  );
+  const currentCount = selectedDocuments.reduce(
+    (n, d) => n + (d.current_chunks || 0),
+    0,
+  );
   const activeRef = useRef(conversation.id);
   activeRef.current = conversation.id;
   const busyRef = useRef(false);
@@ -344,46 +366,61 @@ function ResearchWorkspace() {
       if (serial === requestNo.current) setLoading(false);
     }
   }
-  async function ask(e?: React.FormEvent) {
+  async function ask(
+    e?: React.FormEvent,
+    retry?: { text: string; evidenceIds: number[] },
+  ) {
     e?.preventDefault();
+    const text = retry?.text || question.trim();
+    const evidenceIds = retry
+      ? retry.evidenceIds
+      : evidenceOnly
+        ? [...selected]
+        : [];
     if (
-      !question.trim() ||
+      !text ||
       busyRef.current ||
       noDocuments ||
-      (evidenceOnly && !selected.length)
+      (!retry && evidenceOnly && !selected.length)
     )
       return;
+    const requestScope: Scope = retry
+      ? { ...effectiveScope, mode: "explore" }
+      : effectiveScope;
+    const base = retry ? fresh(requestScope, false) : conversation;
+    if (retry) {
+      setEvidenceOnly(evidenceIds.length > 0);
+      setSelected(evidenceIds);
+    }
+    const sessionId = base.id,
+      id = uid();
     busyRef.current = true;
+    activeRef.current = sessionId;
     setAsking(true);
+    setView("chat");
     setError("");
-    const text = question.trim(),
-      id = uid(),
-      sessionId = conversation.id;
-    const previous = conversation.turns
+    const previous = base.turns
       .filter((t) => t.answer && !t.answer.insufficient_evidence)
       .slice(-6)
       .map((t) => ({
         question: t.question,
         answer: t.answer!.answer.slice(0, 6000),
       }));
-    writeURL(effectiveScope, false, "chat");
-    setConversation((prev) => ({
-      ...prev,
-      scope: effectiveScope,
+    writeURL(requestScope, false, "chat");
+    setConversation({
+      ...base,
+      scope: requestScope,
       all: false,
-      title: prev.turns.length ? prev.title : text.slice(0, 45),
-      turns: [
-        ...prev.turns,
-        { id, question: text, evidenceIds: evidenceOnly ? [...selected] : [] },
-      ],
+      title: base.turns.length ? base.title : text.slice(0, 45),
+      turns: [...base.turns, { id, question: text, evidenceIds }],
       updated: new Date().toISOString(),
-    }));
+    });
     setQuestion("");
     try {
       const answer = await workbenchApi.ask(
         text,
-        effectiveScope,
-        evidenceOnly ? selected : [],
+        requestScope,
+        evidenceIds,
         previous,
       );
       if (activeRef.current === sessionId)
@@ -690,10 +727,15 @@ function ResearchWorkspace() {
               <PanelLeft className="h-5 w-5" />
             </button>
             <div>
-              <h1 className="text-base font-semibold">AI 文献助手</h1>
+              <h1 className="flex items-center gap-2 text-base font-semibold">
+                <Sparkles className="h-4 w-4 text-primary" />
+                知微 · AI 史料助手
+              </h1>
               <p className="mt-1 text-[11px] text-muted-foreground">
                 {scopeLabel} ·{" "}
-                {scope.mode === "verified" ? "仅已复核" : "探索模式"}
+                {scope.mode === "verified"
+                  ? "仅人工复核"
+                  : "原文探索 · 含待审文本"}
               </p>
             </div>
           </div>
@@ -825,7 +867,7 @@ function ResearchWorkspace() {
                   }
                 >
                   <option value="verified">仅已人工复核</option>
-                  <option value="explore">探索：包含待审 OCR</option>
+                  <option value="explore">原文探索：包含待审 OCR</option>
                 </select>
               </label>
               <label>
@@ -910,6 +952,34 @@ function ResearchWorkspace() {
             </div>
           </details>
         </div>
+        <div className="research-scope-strip">
+          <div className="scope-pills" role="group" aria-label="证据使用范围">
+            <button
+              disabled={asking}
+              aria-pressed={scope.mode === "explore"}
+              onClick={() => changeScope({ mode: "explore" })}
+            >
+              <Compass className="h-3.5 w-3.5" />
+              原文探索
+            </button>
+            <button
+              disabled={asking}
+              aria-pressed={scope.mode === "verified"}
+              onClick={() => changeScope({ mode: "verified" })}
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              仅人工复核
+            </button>
+          </div>
+          <p>
+            {scope.mode === "explore"
+              ? "使用已 OCR 原文，待审内容逐条标识"
+              : "严格使用人工复核通过的片段"}
+            {hasReviewCounts
+              ? ` · 所选文献 ${currentCount} 个可用片段，${approvedCount} 个已复核`
+              : ""}
+          </p>
+        </div>
         {catalogError && (
           <div className="error-message my-2" role="alert">
             文献列表加载失败：{catalogError}
@@ -939,18 +1009,29 @@ function ResearchWorkspace() {
                   {!conversation.turns.length ? (
                     <div className="assistant-welcome">
                       <div className="welcome-icon">
-                        <MessageSquare className="h-6 w-6" />
+                        <Compass className="h-7 w-7" />
                       </div>
-                      <p className="eyebrow">READ · ASK · VERIFY</p>
+                      <p className="eyebrow">ZHIWEI / YOUR ARCHIVE COMPANION</p>
                       <h2>
-                        让每一次提问，
+                        你好，让我们
                         <br />
-                        都能回到原始文献。
+                        <span className="text-primary">一起读懂历史。</span>
                       </h2>
-                      <p className="mt-5 max-w-lg text-sm leading-7 text-muted-foreground">
-                        选择一份档案或一个专题，围绕原文提问、比较与追问。
+                      <p className="mt-4 max-w-lg text-sm leading-7 text-muted-foreground">
+                        我是知微，你的 AI 史料研究助手。选好文献后，
                         <br className="hidden sm:block" />
-                        点击回答中的引用，即可对照引句和原始页图。
+                        我会从原文寻找线索，组织回答，并带你回到每一处出处。
+                      </p>
+                      <div className="welcome-evidence-path">
+                        <span>选择文献</span>
+                        <i>→</i>
+                        <span>围绕史料提问</span>
+                        <i>→</i>
+                        <span>点击引用核对</span>
+                      </div>
+                      <p className="mt-3 text-[11px] text-muted-foreground">
+                        AI 辅助解读 · 非历史人物复现 ·
+                        引句可定位不等于解释已证实
                       </p>
                       <div className="welcome-prompts">
                         {[
@@ -979,7 +1060,10 @@ function ResearchWorkspace() {
                           <div className="mb-4 flex items-center justify-between">
                             <span className="flex items-center gap-2 text-xs font-medium text-primary">
                               <BookOpen className="h-4 w-4" />
-                              档案研究助手
+                              知微 ·{" "}
+                              {t.answer?.answer_style === "guide"
+                                ? "史料讲解"
+                                : "有据问答"}
                             </span>
                             <label className="flex items-center gap-2 text-[10px] text-muted-foreground">
                               <input
@@ -1010,7 +1094,9 @@ function ResearchWorkspace() {
                                           ? "本轮回答生成超时，原文证据已保留，可缩小文献范围后重试。"
                                           : t.answer.outcome === "stale_sources"
                                             ? "原文已更新，请重新检索。"
-                                            : "当前筛选范围暂不足以支撑回答。OCR 完成、校正完成与人工复核是不同状态。"}
+                                            : scope.mode === "verified"
+                                              ? "本轮只查询人工复核材料。未命中不表示文献没有答案，可以明确改用待审原文再问一次。"
+                                              : "本轮原文尚不足以支持这个问题，可调整文献范围或日期等筛选条件。"}
                                   </p>
                                   {scope.mode === "verified" &&
                                     ![
@@ -1023,13 +1109,26 @@ function ResearchWorkspace() {
                                         className="mt-2 underline"
                                         disabled={asking}
                                         onClick={() =>
-                                          changeScope({ mode: "explore" })
+                                          ask(undefined, {
+                                            text: t.question,
+                                            evidenceIds: t.evidenceIds,
+                                          })
                                         }
                                       >
-                                        使用待审 OCR 重新准备本问题 →
+                                        使用待审原文回答这个问题 →
                                       </button>
                                     )}
                                 </div>
+                              )}
+                              {t.answer.citations.some(
+                                (c) => c.cited && c.review_state !== "approved",
+                              ) && (
+                                <p className="answer-provenance">
+                                  <span className="review-marker pending">
+                                    含待核对原文
+                                  </span>{" "}
+                                  回答使用了尚未人工复核的片段，请点击编号对照原图。
+                                </p>
                               )}
                               {t.answer.outcome === "extractive_overview" && (
                                 <p className="notice mb-4">
@@ -1093,6 +1192,13 @@ function ResearchWorkspace() {
                                       <span className="shrink-0 text-muted-foreground">
                                         第 {c.page_number} 页
                                       </span>
+                                      <span
+                                        className={`review-marker ${c.review_state === "approved" ? "approved" : "pending"}`}
+                                      >
+                                        {c.review_state === "approved"
+                                          ? "已复核"
+                                          : "待核对"}
+                                      </span>
                                     </button>
                                   ))}
                                 </div>
@@ -1107,7 +1213,14 @@ function ResearchWorkspace() {
                                       key={i}
                                       className="mt-3 border-l pl-3 leading-6"
                                     >
-                                      <p>{claim.text}</p>
+                                      <p>
+                                        <span className="claim-kind">
+                                          {claim.kind === "interpretation"
+                                            ? "AI 解读"
+                                            : "原文记载"}
+                                        </span>
+                                        {claim.text}
+                                      </p>
                                       {claim.quotes.map((q, j) => (
                                         <blockquote
                                           key={j}
@@ -1119,6 +1232,32 @@ function ResearchWorkspace() {
                                     </div>
                                   ))}
                                 </details>
+                              )}
+                              {t.answer.claims.length > 0 && (
+                                <div
+                                  className="followup-prompts"
+                                  aria-label="继续追问"
+                                >
+                                  {[
+                                    "用通俗语言解释这段记载",
+                                    "这些判断有哪些不确定之处？",
+                                    "比较不同来源对这件事的记载",
+                                  ].map((q) => (
+                                    <button
+                                      key={q}
+                                      disabled={asking}
+                                      onClick={() => {
+                                        setQuestion(q);
+                                        document
+                                          .getElementById("research-question")
+                                          ?.focus();
+                                      }}
+                                    >
+                                      {q}
+                                      <ArrowUpRight className="h-3 w-3" />
+                                    </button>
+                                  ))}
+                                </div>
                               )}
                               <p className="mt-5 text-[10px] leading-5 text-muted-foreground">
                                 {t.evidenceIds.length
@@ -1309,6 +1448,39 @@ function ResearchWorkspace() {
                     仅使用所选证据
                   </label>
                 </div>
+                <div
+                  className="answer-style-control"
+                  role="group"
+                  aria-label="回答方式"
+                >
+                  {[
+                    ["guide", "史料讲解"],
+                    ["research", "研究问答"],
+                  ].map(([style, label]) => (
+                    <button
+                      type="button"
+                      key={style}
+                      disabled={asking}
+                      aria-pressed={(scope.answer_style || "guide") === style}
+                      onClick={() => {
+                        const next = {
+                          ...scope,
+                          answer_style: style as Scope["answer_style"],
+                        };
+                        setConversation((prev) => ({ ...prev, scope: next }));
+                        writeURL(next, conversation.all, view, query);
+                      }}
+                    >
+                      {style === "guide" ? (
+                        <Sparkles className="h-3.5 w-3.5" />
+                      ) : (
+                        <BookOpen className="h-3.5 w-3.5" />
+                      )}
+                      {label}
+                    </button>
+                  ))}
+                  <span>解释和记载分开，回答附原文出处</span>
+                </div>
                 <form onSubmit={ask} className="composer-input">
                   <textarea
                     id="research-question"
@@ -1318,7 +1490,7 @@ function ResearchWorkspace() {
                     placeholder={
                       noDocuments
                         ? "请先选择已索引文献…"
-                        : "向所选文献提问，或继续追问…"
+                        : "和知微聊聊：你想从这些文献中了解什么？"
                     }
                     value={question}
                     onChange={(e) => setQuestion(e.target.value)}

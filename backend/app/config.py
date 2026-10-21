@@ -55,12 +55,16 @@ class Settings(BaseSettings):
     gpt_page_max_tokens: int = 8192
     gpt_page_enable_thinking: bool = False
     gpt_structured_output: bool = True
+    correction_profiles_path: str = "config/correction_profiles.local.json"
 
     # RAG
     embedding_model: str = "BAAI/bge-m3"
     embedding_batch_size: int = 32
     rag_top_k: int = 8
     rag_answer_timeout_seconds: float = 150.0
+
+    # Bounded research analysis calls; independent of OCR and RAG budgets.
+    insights_request_timeout_seconds: float = 90.0
 
     # Storage paths
     storage_path: str = "../storage"

@@ -7,6 +7,9 @@ import {
   Search,
   ClipboardCheck,
   Upload,
+  Sparkles,
+  Compass,
+  ArrowRight,
 } from "lucide-react";
 import { ProcessingStatus } from "@/components/workbench/ProcessingStatus";
 import { workbenchApi } from "@/lib/workbench";
@@ -27,41 +30,26 @@ export default function Home() {
   useEffect(load, []);
   return (
     <div className="app-shell py-8 md:py-12">
-      <div className="workspace-hero relative mb-9 grid gap-8 border-b pb-10 lg:grid-cols-[1.4fr_1fr] lg:items-center">
+      <section className="mb-6 flex flex-col justify-between gap-5 border-b pb-6 md:flex-row md:items-end">
         <div>
-          <p className="eyebrow">CANTON ARCHIVES / 研究工作台</p>
-          <h1 className="max-w-2xl text-3xl font-semibold leading-snug tracking-tight md:text-5xl md:leading-tight">
-            从档案出发，
-            <br />
-            <span className="text-primary">让研究有据可循。</span>
-          </h1>
-          <p className="section-description mt-4 max-w-2xl">
-            整理档案，核对原文，将人物、事件与研究问题连接成可追溯的知识。
+          <p className="eyebrow">EIC CANTON ARCHIVES / RESEARCH DESK</p>
+          <h1 className="text-3xl font-semibold tracking-tight">研究工作台</h1>
+          <p className="mt-3 text-sm text-muted-foreground">
+            从文献整理到历史线索，让每一次发现都回到原始证据。
           </p>
         </div>
-        <div className="hero-aside p-7 md:p-8">
-          <p className="eyebrow">开始一次研究</p>
-          <h2 className="mb-2 text-lg font-medium">
-            让下一条线索，成为可靠的证据。
-          </h2>
-          <p className="mb-5 text-sm leading-7 text-muted-foreground">
-            导入新的史料，或进入档案库继续阅读。原图、译校与证据标注在同一处对照。
-          </p>
-          <div className="flex flex-wrap gap-3">
-            <Link href="/upload">
-              <Button>
-                <Upload className="mr-2 h-4 w-4" />
-                导入档案
-              </Button>
-            </Link>
-            <Link href="/documents">
-              <Button variant="outline">
-                继续阅读 <ArrowUpRight className="ml-2 h-4 w-4" />
-              </Button>
-            </Link>
-          </div>
+        <div className="flex gap-3">
+          <Link href="/documents">
+            <Button variant="outline">我的文献</Button>
+          </Link>
+          <Link href="/upload">
+            <Button>
+              <Upload size={15} className="mr-2" />
+              导入文献
+            </Button>
+          </Link>
         </div>
-      </div>
+      </section>
       {error && (
         <div className="error-message" role="alert">
           {error}
@@ -70,19 +58,27 @@ export default function Home() {
           </button>
         </div>
       )}
-      <dl className="my-8 grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-4">
+      <dl className="my-8 grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border lg:grid-cols-6">
         {[
           ["documents", "档案文档"],
-          ["annotations", "研究标注"],
+          ["pages", "文献总页数"],
+          ["ocr_pages", "有 OCR 文本页数"],
           ["pending", "待审核"],
-          ["entities", "人物与实体"],
+          ["events", "历史事件（含候选）"],
+          ["unresolved_mentions", "未关联身份的提及"],
         ].map(([key, label]) => (
           <div key={key} className="bg-card p-5 md:px-7">
             <dt className="text-sm text-muted-foreground">{label}</dt>
             <dd className="mt-3 text-3xl font-medium tabular-nums">
               {data
                 ? data[
-                    key as "documents" | "annotations" | "pending" | "entities"
+                    key as
+                      | "documents"
+                      | "pages"
+                      | "ocr_pages"
+                      | "pending"
+                      | "events"
+                      | "unresolved_mentions"
                   ]
                 : "—"}
             </dd>
@@ -99,8 +95,8 @@ export default function Home() {
           },
           {
             href: "/research",
-            title: "查找历史证据",
-            text: "按档案范围检索，再围绕证据提问。",
+            title: "与史料展开对话",
+            text: "让 AI 帮你梳理问题，带着引用回到原文。",
             icon: Search,
           },
           {
@@ -138,7 +134,7 @@ export default function Home() {
             data.recent_documents.map((d) => (
               <Link
                 key={d.id}
-                href={`/viewer/${d.id}`}
+                href={`/documents/${d.id}/workspace`}
                 className="flex items-center justify-between gap-4 border-b p-5 last:border-0 hover:bg-muted/30"
               >
                 <div className="min-w-0">

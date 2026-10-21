@@ -1,12 +1,13 @@
 "use client";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { Block, Page } from "@/types";
 import { Evidence, Extraction, FIELD_LABELS } from "@/types/workbench";
 import { request, workbenchApi } from "@/lib/workbench";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ResearchWorkflow } from "./ResearchWorkflow";
 import { EvidenceDialog } from "./EvidenceDialog";
 type TextField =
   "ocr_text_raw" | "ocr_text_corrected" | "modern_english" | "translation_zh";
@@ -30,6 +31,10 @@ export function AnnotationPanel({
 }) {
   const searchParams = useSearchParams();
   const fromAnnotation = Number(searchParams.get("from_annotation")) || null;
+  const [lastAnnotation, setLastAnnotation] = useState<number | null>(null);
+  const appliedQuote = useRef("");
+  const quoteRevision = Number(searchParams.get("annotate_revision"));
+  const requestedField = searchParams.get("annotate_field");
   const [checkedCurrent, setCheckedCurrent] = useState(false);
   const [quality, setQuality] = useState<{
     ocr_warnings: string[];
@@ -125,6 +130,62 @@ export function AnnotationPanel({
     setRange([0, Array.from(text).length]);
     setEvidence(null);
   }, [text, textField]);
+  useEffect(() => {
+    if (
+      !block ||
+      !quoteRevision ||
+      Number(searchParams.get("block")) !== block.id
+    )
+      return;
+    const key = `${block.id}:${quoteRevision}`;
+    if (appliedQuote.current === key) return;
+    const mapping: Record<string, TextField> = {
+      ocr_raw: "ocr_text_raw",
+      ocr_corrected: "ocr_text_corrected",
+      modern_english: "modern_english",
+      translation_zh: "translation_zh",
+    };
+    const field = mapping[requestedField || ""];
+    if (!field) return;
+    if (textField !== field) {
+      setTextField(field);
+      return;
+    }
+    let active = true;
+    request<{ items: { id: number; content: string }[] }>(
+      `/workbench/blocks/${block.id}/revisions`,
+    )
+      .then((result) => {
+        if (!active) return;
+        const revision = result.items.find((r) => r.id === quoteRevision);
+        const start = Number(searchParams.get("annotate_start")),
+          end = Number(searchParams.get("annotate_end"));
+        appliedQuote.current = key;
+        if (
+          !revision ||
+          revision.content !== text ||
+          !Number.isInteger(start) ||
+          !Number.isInteger(end) ||
+          start < 0 ||
+          end <= start ||
+          end > Array.from(text).length
+        ) {
+          setError(
+            "这条线索引用了旧文本。请对照当前原文重新选取引句，避免把旧判断套在新版本上。",
+          );
+          return;
+        }
+        setRange([start, end]);
+        setTab("annotate");
+        setMessage(
+          "已定位这段原文。核对扫描后，在下方记录人物或事件判断；无需重复选择引句。",
+        );
+      })
+      .catch((e) => active && setError(e.message));
+    return () => {
+      active = false;
+    };
+  }, [block?.id, quoteRevision, requestedField, textField, text, searchParams]);
   function loadUnits() {
     request<{ items: Unit[] }>(
       `/workbench/documents/${documentId}/source-units`,
@@ -419,6 +480,7 @@ export function AnnotationPanel({
             )}
           </>
         )}
+        {tab === "annotate" && <ResearchWorkflow current="record" />}
         {tab === "annotate" && (
           <>
             <form
@@ -435,13 +497,20 @@ export function AnnotationPanel({
                     fields,
                   });
                   setFields({});
+                  setLastAnnotation(a.id);
                   setMessage(
                     `标注 ${a.public_id.slice(0, 8)} 已进入审核队列。`,
                   );
                 });
               }}
             >
-              <h3 className="text-sm font-semibold">从引句建立研究标注</h3>
+              <h3 className="text-sm font-semibold">
+                记录这段原文支持的研究判断
+              </h3>
+              <p className="text-xs leading-6 text-muted-foreground">
+                例如：原文出现谁、发生了什么、此人担任什么角色。只填有依据的内容；保存后仍是待审候选，不会改写
+                OCR 原文。
+              </p>
               <label>
                 <span className="field-label">所属文书（可选）</span>
                 <select
@@ -518,8 +587,15 @@ export function AnnotationPanel({
               >
                 保存为待审标注
               </Button>
-              <Link className="ml-3 text-xs text-primary" href="/reviews">
-                打开审核 →
+              <Link
+                className="ml-3 text-xs text-primary"
+                href={
+                  lastAnnotation
+                    ? `/reviews?annotation=${lastAnnotation}`
+                    : "/reviews"
+                }
+              >
+                {lastAnnotation ? "审核刚保存的记录" : "打开审核"} →
               </Link>
             </form>
             <form

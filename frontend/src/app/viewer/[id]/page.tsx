@@ -45,13 +45,46 @@ export default function ViewerPage() {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [mobilePanel, setMobilePanel] = useState<
     "image" | "text" | "knowledge"
-  >(searchParams.get("from_annotation") ? "knowledge" : "image");
+  >(
+    searchParams.get("from_annotation") || searchParams.get("annotate_revision")
+      ? "knowledge"
+      : "image",
+  );
   const [showBlockList, setShowBlockList] = useState(true);
+  const [imageWeight, setImageWeight] = useState(1);
+  const [knowledgeWeight, setKnowledgeWeight] = useState(0.9);
+  useEffect(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem("eic-reader-widths") || "null");
+      if (v) {
+        setImageWeight(v[0]);
+        setKnowledgeWeight(v[1]);
+      }
+    } catch {}
+  }, []);
+  const [originalFont, setOriginalFont] = useState("sans");
+  useEffect(() => {
+    setOriginalFont(localStorage.getItem("eic-original-font") || "sans");
+  }, []);
+  useEffect(() => {
+    if (
+      currentPage?.document_id === documentId &&
+      currentPage.page_number === currentPageNumber
+    )
+      localStorage.setItem(
+        `eic-reading-page-${documentId}`,
+        String(currentPageNumber),
+      );
+  }, [currentPage, documentId, currentPageNumber]);
   const [readingMode, setReadingMode] = useState<"page" | "document">("page");
 
   useEffect(() => {
     appliedBlockQuery.current = false;
-    setCurrentPageNumber(initialPage);
+    const saved = searchParams.get("page")
+      ? initialPage
+      : Number(localStorage.getItem(`eic-reading-page-${documentId}`)) ||
+        initialPage;
+    setCurrentPageNumber(saved);
     setLinkedEvidence(null);
     setEvidenceError("");
     if (evidenceId)
@@ -250,7 +283,10 @@ export default function ViewerPage() {
       .join("\n\n");
 
   return (
-    <div className="app-shell reader-workspace py-4">
+    <div
+      className="app-shell reader-workspace py-4"
+      data-original-font={originalFont}
+    >
       <div className="mb-3 flex shrink-0 flex-col gap-3 rounded-lg border border-border bg-card p-3 md:flex-row md:items-center md:justify-between">
         <div className="flex items-start gap-4">
           <Link href={`/documents/${documentId}`}>
@@ -350,7 +386,75 @@ export default function ViewerPage() {
           </Button>
         ))}
       </nav>
-      <div className="reader-columns grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,.9fr)]">
+      <div className="mb-3 hidden items-center gap-5 text-xs text-muted-foreground lg:flex">
+        <Link
+          className="text-primary underline"
+          href={`/documents/${documentId}/workspace`}
+        >
+          文献研究工作区
+        </Link>
+        <label className="flex items-center gap-2">
+          原文字体
+          <select
+            aria-label="原文英文字体"
+            className="rounded border bg-card px-2 py-1"
+            value={originalFont}
+            onChange={(e) => {
+              setOriginalFont(e.target.value);
+              localStorage.setItem("eic-original-font", e.target.value);
+            }}
+          >
+            <option value="sans">无衬线</option>
+            <option value="serif">衬线</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-2">
+          原图宽度
+          <input
+            aria-label="原图栏宽度"
+            type="range"
+            min="0.5"
+            max="2"
+            step="0.05"
+            value={imageWeight}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setImageWeight(v);
+              localStorage.setItem(
+                "eic-reader-widths",
+                JSON.stringify([v, knowledgeWeight]),
+              );
+            }}
+          />
+        </label>
+        <label className="flex items-center gap-2">
+          分析宽度
+          <input
+            aria-label="分析栏宽度"
+            type="range"
+            min="0.5"
+            max="1.5"
+            step="0.05"
+            value={knowledgeWeight}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setKnowledgeWeight(v);
+              localStorage.setItem(
+                "eic-reader-widths",
+                JSON.stringify([imageWeight, v]),
+              );
+            }}
+          />
+        </label>
+      </div>
+      <div
+        style={
+          {
+            "--reader-template": `minmax(0,${imageWeight}fr) minmax(0,1fr) minmax(0,${knowledgeWeight}fr)`,
+          } as React.CSSProperties
+        }
+        className="reader-columns grid min-h-0 flex-1 gap-3"
+      >
         <div
           className={cn(
             "reader-column min-w-0 min-h-0 flex-col",

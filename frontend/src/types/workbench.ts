@@ -64,6 +64,7 @@ export interface Extraction {
   output_summary?: { created: number; rejected_candidates: unknown[] };
 }
 export interface Scope {
+  answer_style?: "research" | "guide";
   document_id?: number;
   document_ids?: number[];
   corpus_id?: number;
@@ -88,13 +89,20 @@ export interface Hit {
   content_type: string;
 }
 export interface Answer {
+  answer_style?: "research" | "guide";
+  scope?: Scope;
   sections?: Array<{ title: string; content: string }>;
   outcome?: string;
   diagnostics?: { retrieved?: number; sampling?: boolean; mode?: string };
   answer: string;
   insufficient_evidence: boolean;
   citations: Array<Hit & { index: number; cited: boolean }>;
-  claims: Array<{ text: string; citations: number[]; quotes: string[] }>;
+  claims: Array<{
+    kind?: "source_record" | "interpretation";
+    text: string;
+    citations: number[];
+    quotes: string[];
+  }>;
   warnings: string[];
   model: string;
 }

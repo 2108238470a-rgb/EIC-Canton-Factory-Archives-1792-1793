@@ -3,6 +3,8 @@
 
 **东印度公司广州商馆（1792–1793）档案数字文本与全文检索平台**
 
+本地研发版本说明：[分析超时处理与运行说明](LOCAL_ANALYSIS_NOTES.md)。本版本包含文献研究工作区、证据关联目录、候选事件时间线及分组断点概述。自动分析结果仍需研究者核对原文。
+
 <div align="center">
   <img src="./assets/platform-preview.png" alt="Platform Preview" width="100%">
 </div>
@@ -39,7 +41,7 @@ A digital humanities platform for digitizing, OCR processing, and full-text sear
 
 **Frontend**
 
-- Next.js 14 (App Router)
+- Next.js 15.5.28 (App Router), React 19.2.9
 - TypeScript
 - Tailwind CSS
 - Lucide Icons
@@ -152,3 +154,7 @@ npm run dev
 ## 📄 License
 
 [MIT License](LICENSE)
+
+## 历史文献 OCR 标注与微调
+
+跨卷忠实校正配置、历史工作者标注规范、教学范本、数据检查与 A6000 训练步骤见 [ocr_training/README.md](ocr_training/README.md)。实际档案图像、人工标注和训练导出保留在本地忽略目录。

@@ -1,4 +1,6 @@
 export interface IndexDocument {
+  approved_chunks?: number;
+  current_chunks?: number;
   corpus_id?: number | null;
   id: number;
   title: string;

@@ -436,7 +436,9 @@ class GPTPromptFallbackTests(unittest.IsolatedAsyncioTestCase):
         system_prompt = completion_call.await_args.args[0]
         request_options = completion_call.await_args.kwargs
         self.assertIn("do not polish or modernize", system_prompt.lower())
-        self.assertIn("publick", system_prompt)
+        self.assertIn(
+            "An unfamiliar spelling is not evidence of an error", system_prompt
+        )
         self.assertEqual(request_options["max_tokens"], settings.gpt_page_max_tokens)
         response_format = request_options["response_format"]
         self.assertEqual(response_format["type"], "json_object")
@@ -472,8 +474,8 @@ class GPTPromptFallbackTests(unittest.IsolatedAsyncioTestCase):
 
     def test_single_block_fallback_preserves_facts_and_forms(self) -> None:
         prompt = GPTService()._get_default_prompt("ocr_correction")
-        self.assertIn("publick", prompt)
-        self.assertIn("Modern-English rewriting is forbidden", prompt)
+        self.assertIn("An unfamiliar spelling is not evidence of an error", prompt)
+        self.assertIn("Do not polish or modernize", prompt)
 
 
 class PromptContractTests(unittest.TestCase):
@@ -483,5 +485,5 @@ class PromptContractTests(unittest.TestCase):
         service = GPTService()
         for mode in ["ocr_correction", "ocr_correction_page"]:
             self.assertEqual(service._get_default_prompt(mode), FAITHFUL_PROMPT)
-        self.assertIn("Preserve all scripts", FAITHFUL_PROMPT)
+        self.assertIn("Preserve the original names, scripts", FAITHFUL_PROMPT)
         self.assertNotIn("Sparkes", FAITHFUL_PROMPT)

@@ -616,6 +616,85 @@ class WorkflowTests(unittest.TestCase):
             )
         self.assertIsNone(self.db.get(Block, self.block.id).ocr_text_corrected)
 
+    def test_verified_mode_never_silently_expands_to_pending_ocr(self):
+        self.index()
+        service = RagAnswerService(self.db)
+        with patch("app.rag.qa.gpt_service.complete", AsyncMock()) as complete:
+            result = asyncio.run(
+                service.answer(
+                    "概括主要人物与事件",
+                    8,
+                    scope=ResearchScope(mode="verified"),
+                    answer_style="guide",
+                )
+            )
+        complete.assert_not_awaited()
+        self.assertEqual(result.outcome, "no_sources")
+        self.assertEqual(result.scope["mode"], "verified")
+        self.assertIn("不表示档案没有答案", result.answer)
+
+    def test_exploratory_guide_separates_record_and_interpretation(self):
+        self.index()
+        service = RagAnswerService(self.db)
+        service.retriever = HybridRetriever(self.db, UnavailableEmbedding())
+        complete = AsyncMock(
+            return_value=SimpleNamespace(
+                text=json.dumps(
+                    {
+                        "insufficient_evidence": False,
+                        "claims": [
+                            {
+                                "kind": "source_record",
+                                "text": "原文记载 Smith 发出请求。",
+                                "citations": [1],
+                                "quotes": ["Captain Smith sent a request to Canton."],
+                            },
+                            {
+                                "kind": "interpretation",
+                                "text": "这可能表明存在请求往来，具体背景不能仅由此确定。",
+                                "citations": [1],
+                                "quotes": ["Captain Smith sent a request to Canton."],
+                            },
+                        ],
+                    }
+                )
+            )
+        )
+        with patch("app.rag.qa.gpt_service.complete", complete):
+            result = asyncio.run(
+                service.answer(
+                    "Smith",
+                    8,
+                    scope=ResearchScope(mode="explore"),
+                    retrieval="keyword",
+                    answer_style="guide",
+                )
+            )
+        self.assertFalse(result.insufficient_evidence)
+        self.assertEqual(
+            [x.title for x in result.sections], ["原文记载", "AI 解读 · 仍需核对"]
+        )
+        self.assertTrue(any("尚未人工复核" in w for w in result.warnings))
+        self.assertEqual(result.claims[1].kind, "interpretation")
+        self.assertIn("虚构的 AI 研究助手", complete.await_args.args[0])
+        self.assertEqual(result.answer_style, "guide")
+
+    def test_catalog_review_counts_are_actual_current_fragments(self):
+        from app.rag.api import index_documents
+
+        self.index()
+        item = next(
+            d for d in index_documents(self.db)["items"] if d["id"] == self.doc.id
+        )
+        self.assertGreater(item["current_chunks"], 0)
+        self.assertEqual(item["approved_chunks"], 0)
+        self.block.ocr_text_raw = "new original"
+        self.db.commit()
+        item = next(
+            d for d in index_documents(self.db)["items"] if d["id"] == self.doc.id
+        )
+        self.assertEqual(item["current_chunks"], 0)
+
     def test_question_generation_timeout_returns_evidence_and_cancels_model(self):
         self.index()
         service = RagAnswerService(self.db)

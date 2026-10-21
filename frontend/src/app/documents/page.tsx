@@ -163,7 +163,10 @@ export default function DocumentsPage() {
                 {String((page - 1) * pageSize + index + 1).padStart(2, "0")}
               </div>
               <div className="min-w-0 flex-1">
-                <Link href={`/documents/${doc.id}`} className="archive-title">
+                <Link
+                  href={`/documents/${doc.id}/workspace`}
+                  className="archive-title"
+                >
                   {doc.original_filename}
                 </Link>
                 <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">

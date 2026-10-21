@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from app.config import settings
 from app.services.correction_quality import FAITHFUL_PROMPT, assess_correction
+from app.services.correction_profiles import CorrectionProfile, profile_audit
 from app.core import logger, GPTServiceError
 from app.schemas import (
     GPTBlockProcessingResultSchema,
@@ -234,15 +235,19 @@ class GPTService:
         text: str,
         mode: str,
         context: Optional[str] = None,
+        document_profile: Optional[CorrectionProfile] = None,
     ) -> GPTCompletionResultSchema:
         """Process text and return normalized token usage."""
         if not text or not text.strip():
             return GPTCompletionResultSchema(text="", token_usage=TokenUsageSchema())
 
-        try:
-            system_prompt = self._load_prompt(mode)
-        except GPTServiceError:
-            system_prompt = self._get_default_prompt(mode)
+        if mode == "ocr_correction":
+            system_prompt = FAITHFUL_PROMPT
+        else:
+            try:
+                system_prompt = self._load_prompt(mode)
+            except GPTServiceError:
+                system_prompt = self._get_default_prompt(mode)
 
         user_message = text
         if context:
@@ -252,7 +257,16 @@ class GPTService:
                 f"\n\nContext:\n{context}\n\nText to process:\n{text}"
             )
         if mode == "ocr_correction":
-            system_prompt = FAITHFUL_PROMPT
+            user_message = json.dumps(
+                {
+                    "document_profile": (
+                        document_profile or CorrectionProfile()
+                    ).model_dump(),
+                    "context": context or "",
+                    "target": text,
+                },
+                ensure_ascii=False,
+            )
         result = await self._request_completion(system_prompt, user_message, mode)
         logger.debug("GPT %s completed for text length %s", mode, len(text))
         return result
@@ -299,6 +313,7 @@ class GPTService:
         text: str,
         modes: List[str],
         context: Optional[str] = None,
+        document_profile: Optional[CorrectionProfile] = None,
     ) -> GPTBlockProcessingResultSchema:
         """Process one block and aggregate usage across requested modes."""
         results: Dict[str, str] = {}
@@ -308,9 +323,15 @@ class GPTService:
 
         if "ocr_correction" in modes:
             completion = await self.process_text_with_usage(
-                current_text, "ocr_correction", context
+                current_text,
+                "ocr_correction",
+                context,
+                document_profile=document_profile,
             )
             quality_report = assess_correction(current_text, completion.text)
+            quality_report.update(
+                profile_audit(document_profile or CorrectionProfile())
+            )
             results["ocr_text_corrected"] = quality_report["text"]
             current_text = quality_report["text"]
             self._add_usage(usage, completion.token_usage)
@@ -422,10 +443,6 @@ class GPTService:
             return PageCorrectionCallResultSchema(
                 blocks=outputs, quality_reports=reports, token_usage=usage
             )
-        try:
-            system_prompt = self._load_prompt("ocr_correction_page")
-        except GPTServiceError:
-            system_prompt = self._get_default_prompt("ocr_correction_page")
         system_prompt = FAITHFUL_PROMPT
         user_message = json.dumps(
             request.model_dump(), ensure_ascii=False, separators=(",", ":")
@@ -451,6 +468,8 @@ class GPTService:
             )
             for item in request.blocks
         }
+        for report in reports.values():
+            report.update(profile_audit(request.document_profile))
         ordered = [
             output_by_id[item.block_id].model_copy(
                 update={"ocr_text_corrected": reports[item.block_id]["text"]}

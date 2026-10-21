@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ResearchWorkflow } from "@/components/workbench/ResearchWorkflow";
 import { AnnotationTable } from "@/components/workbench/AnnotationTable";
 import { Annotation, Paged, STATE_LABELS } from "@/types/workbench";
 import { documentApi } from "@/lib/api";
@@ -87,6 +88,7 @@ export default function KnowledgePage() {
           <Button>从档案建立标注</Button>
         </Link>
       </div>
+      <ResearchWorkflow current="knowledge" />
       <nav className="section-tabs" aria-label="知识类型">
         {[
           ["annotations", "标注总表"],

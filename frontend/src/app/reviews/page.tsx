@@ -2,6 +2,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { ResearchWorkflow } from "@/components/workbench/ResearchWorkflow";
 import { Annotation, FIELD_LABELS, STATE_LABELS } from "@/types/workbench";
 import { request, workbenchApi } from "@/lib/workbench";
 import { EvidenceContent } from "@/components/workbench/EvidenceDialog";
@@ -137,6 +138,7 @@ function ReviewWorkspace() {
           返回知识库 →
         </Link>
       </div>
+      <ResearchWorkflow current="review" />
       {error && (
         <p className="error-message" role="alert">
           {error}

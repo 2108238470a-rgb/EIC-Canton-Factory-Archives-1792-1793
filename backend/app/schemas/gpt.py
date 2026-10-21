@@ -3,6 +3,7 @@
 from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+from app.services.correction_profiles import CorrectionProfile
 
 
 HistoricalRegionRole = Literal[
@@ -92,6 +93,7 @@ class PageCorrectionRequestSchema(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    document_profile: CorrectionProfile = Field(default_factory=CorrectionProfile)
     page_number: int
     previous_page_context: List[PageCorrectionContextBlockSchema] = Field(
         default_factory=list

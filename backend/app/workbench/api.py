@@ -48,6 +48,24 @@ def overview(db: Session = Depends(get_db)):
     counts["documents"] = (
         db.query(Document).filter(Document.archived_at.is_(None)).count()
     )
+    counts["pages"] = int(
+        db.query(func.sum(Document.page_count))
+        .filter(Document.archived_at.is_(None))
+        .scalar()
+        or 0
+    )
+    counts["ocr_pages"] = (
+        db.query(Page.id)
+        .join(Document)
+        .join(Block)
+        .filter(
+            Document.archived_at.is_(None),
+            Block.retired.is_(False),
+            func.length(func.trim(func.coalesce(Block.ocr_text_raw, ""))) > 0,
+        )
+        .distinct()
+        .count()
+    )
     recent = (
         db.query(Document)
         .filter(Document.archived_at.is_(None))
@@ -64,7 +82,10 @@ def overview(db: Session = Depends(get_db)):
     ]
     counts["extractions"] = [
         serialize(r)
-        for r in db.query(ExtractionRun).order_by(ExtractionRun.id.desc()).limit(6)
+        for r in db.query(ExtractionRun)
+        .filter(ExtractionRun.schema_version != "document-insights-v1")
+        .order_by(ExtractionRun.id.desc())
+        .limit(6)
     ]
     return counts
 

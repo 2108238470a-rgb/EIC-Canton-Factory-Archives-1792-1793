@@ -36,6 +36,7 @@ class ConversationTurnSchema(BaseModel):
 
 
 class QuestionRequestSchema(ResearchScope):
+    answer_style: Literal["research", "guide"] = "research"
     history: list[ConversationTurnSchema] = Field(default_factory=list, max_length=6)
     question: str = Field(min_length=1, max_length=1000)
     top_k: int = Field(8, ge=1, le=20)
@@ -73,6 +74,7 @@ class CitationSchema(SearchHitSchema):
 
 
 class AnswerClaim(BaseModel):
+    kind: Literal["source_record", "interpretation"] = "source_record"
     category: Literal["context", "person", "event", "other"] = "other"
     text: str
     citations: list[int] = Field(min_length=1)
@@ -85,6 +87,7 @@ class AnswerSection(BaseModel):
 
 
 class AnswerResponseSchema(BaseModel):
+    answer_style: Literal["research", "guide"] = "research"
     sections: list[AnswerSection] = Field(default_factory=list)
     outcome: str = "answered"
     diagnostics: dict[str, Any] = Field(default_factory=dict)

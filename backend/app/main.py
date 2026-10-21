@@ -121,6 +121,9 @@ async def general_exception_handler(request: Request, exc: Exception):
 app.mount("/storage", StaticFiles(directory=settings.storage_path), name="storage")
 
 # Include routers
+from app.insights.api import router as insights_router
+
+app.include_router(insights_router, prefix="/api/v2")
 app.include_router(documents_router, prefix="/api")
 app.include_router(pages_router, prefix="/api")
 app.include_router(blocks_router, prefix="/api")

@@ -38,6 +38,9 @@ const post = <T>(path: string, data: unknown) =>
 export const workbenchApi = {
   overview: () =>
     request<{
+      pages: number;
+      ocr_pages: number;
+      unresolved_mentions: number;
       pending: number;
       annotations: number;
       documents: number;

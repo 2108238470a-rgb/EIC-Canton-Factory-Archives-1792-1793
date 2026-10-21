@@ -9,6 +9,7 @@ from app.tasks.celery_app import celery_app
 from app.database import SessionLocal
 from app.services.gpt_service import gpt_service
 from app.services.correction_quality import assess_correction
+from app.services.correction_profiles import load_document_profile
 from app.repositories import (
     TaskRepository,
     BlockRepository,
@@ -301,6 +302,7 @@ def _build_page_request(
         and (context := _context_block(page, block)) is not None
     ][:CURRENT_PAGE_REFERENCE_LIMIT]
     return PageCorrectionRequestSchema(
+        document_profile=load_document_profile(page.document_id),
         page_number=page.page_number,
         previous_page_context=_bounded_context(
             previous_page, previous_blocks, from_end=True
@@ -514,7 +516,14 @@ def polish_block_task(
             },
         )
         processing_result = run_async(
-            gpt_service.process_block_with_usage(block.ocr_text_raw, modes, context)
+            gpt_service.process_block_with_usage(
+                block.ocr_text_raw,
+                modes,
+                context,
+                document_profile=load_document_profile(
+                    page.document_id if page else None
+                ),
+            )
         )
         results = processing_result.results
         if "ocr_text_corrected" in results:

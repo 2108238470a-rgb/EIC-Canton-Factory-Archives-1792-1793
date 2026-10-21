@@ -127,6 +127,18 @@ export default function DocumentDetailPage() {
         </Link>
       </div>
 
+      <Link
+        href={`/documents/${documentId}/workspace`}
+        className="mb-6 flex items-center justify-between rounded-lg border bg-card p-5 text-primary hover:bg-accent"
+      >
+        <span>
+          <strong className="block">进入文献研究工作区</strong>
+          <span className="mt-1 block text-xs text-muted-foreground">
+            智能目录 · 文献概览 · 事件时间线 · 原文核验
+          </span>
+        </span>
+        <span>→</span>
+      </Link>
       <div className="grid gap-6 md:grid-cols-3">
         <div className="md:col-span-2">
           <Card>

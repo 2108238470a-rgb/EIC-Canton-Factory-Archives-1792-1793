@@ -66,6 +66,8 @@ def index_documents(db: Session = Depends(get_db)):
             entry["blocks"].add(block.id)
             entry["pages"].add(page_id)
     indexed = {}
+    approved_chunks = {}
+    current_chunks = {}
     chunks = (
         db.query(SearchChunk)
         .options(defer(SearchChunk.embedding))
@@ -90,6 +92,13 @@ def index_documents(db: Session = Depends(get_db)):
     )
     for chunk in chunks:
         if segments_valid(db, chunk):
+            current_chunks[chunk.document_id] = (
+                current_chunks.get(chunk.document_id, 0) + 1
+            )
+            if chunk.review_state == "approved":
+                approved_chunks[chunk.document_id] = (
+                    approved_chunks.get(chunk.document_id, 0) + 1
+                )
             indexed.setdefault(chunk.document_id, set()).update(
                 p["block_id"] for p in chunk.segments
             )
@@ -104,6 +113,8 @@ def index_documents(db: Session = Depends(get_db)):
                 ocr_pages=len(coverage[d.id]["pages"]),
                 eligible=len(coverage[d.id]["blocks"]),
                 indexed=len(coverage[d.id]["blocks"] & indexed.get(d.id, set())),
+                approved_chunks=approved_chunks.get(d.id, 0),
+                current_chunks=current_chunks.get(d.id, 0),
                 status=d.status.value,
             )
             for d in docs
@@ -190,4 +201,5 @@ async def ask_question(
         selected_ids=data.selected_chunk_ids or None,
         retrieval=data.retrieval,
         history=[turn.model_dump() for turn in data.history],
+        answer_style=data.answer_style,
     )
