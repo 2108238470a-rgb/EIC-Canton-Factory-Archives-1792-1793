@@ -50,8 +50,11 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# Python packaging output. Anchored with a leading slash so only the
+# repository-root ``lib/`` is ignored: an unanchored ``lib/`` also matched
+# ``frontend/src/lib/`` and silently hid the frontend source files from Git.
+/lib/
+/lib64/
 parts/
 sdist/
 var/

@@ -307,7 +307,7 @@ class OCRServicePageFlowTests(unittest.TestCase):
         process_pdf.assert_awaited_once()
         self.assertEqual(process_pdf.await_args.args[0], page_two_pdf)
         self.assertEqual(process_pdf.await_args.kwargs["layout_shape_mode"], "rect")
-        self.assertEqual(process_pdf.await_args.kwargs["max_pixels"], 1_500_000)
+        self.assertEqual(process_pdf.await_args.kwargs["max_pixels"], 4_200_000)
         self.assertEqual(process_pdf.await_args.kwargs["max_new_tokens"], 1024)
         self.assertEqual(markdown, "Page one\n\nPage two")
         self.assertTrue(progress_events[1][1]["resumed"])

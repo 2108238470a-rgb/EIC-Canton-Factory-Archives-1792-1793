@@ -10,7 +10,9 @@ celery_app = Celery(
     include=[
         "app.tasks.ocr_tasks",
         "app.tasks.gpt_tasks",
+        "app.tasks.kg_tasks",
     ],
+
 )
 
 # Celery configuration
