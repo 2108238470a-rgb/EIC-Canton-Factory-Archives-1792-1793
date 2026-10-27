@@ -12,6 +12,38 @@ from app.config import settings
 from app.database import Base, get_engine
 from app.core import logger, AppException
 from app.models.research import ALEMBIC_MANAGED_TABLES
+
+#: Tables owned by the merged upstream V2 knowledge stack (/api/v2). Their DDL arrives
+#: through upstream's own environment (`alembic -c alembic.ini upgrade head`), never
+#: through ``create_all`` at startup: some carry pgvector columns, so an implicit create
+#: would either fail (extension missing) or leave a half-schema behind.
+V2_ALEMBIC_MANAGED_TABLES = frozenset(
+    {
+        "annotation_reviews",
+        "annotations",
+        "archival_metadata",
+        "assertion_evidences",
+        "assertions",
+        "corpus_memberships",
+        "entities",
+        "entity_mentions",
+        "event_mentions",
+        "event_relations",
+        "events",
+        "evidence_spans",
+        "extraction_leases",
+        "extraction_runs",
+        "identity_decisions",
+        "legacy_knowledge_map",
+        "participations",
+        "research_corpora",
+        "review_decisions",
+        "search_chunks",
+        "source_unit_spans",
+        "source_units",
+        "text_revisions",
+    }
+)
 from app.services.paddle_service import paddle_service
 from app.utils import ensure_directories
 from app.api.routers import (
@@ -79,9 +111,8 @@ def _run_migrations() -> None:
 
 def _startup_tables() -> list:
     """Tables created at startup — everything except the Alembic-managed ones."""
-    return [
-        table for table in Base.metadata.sorted_tables if table.name not in ALEMBIC_MANAGED_TABLES
-    ]
+    managed = ALEMBIC_MANAGED_TABLES | V2_ALEMBIC_MANAGED_TABLES
+    return [table for table in Base.metadata.sorted_tables if table.name not in managed]
 
 
 @asynccontextmanager

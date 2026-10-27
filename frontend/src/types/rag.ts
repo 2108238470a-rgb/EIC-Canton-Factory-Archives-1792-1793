@@ -106,6 +106,7 @@ export interface RagEntityContextResponse {
   relationships: RagRelationshipReference[];
   evidences: RagSourceEvidence[];
 
+}
 // ---- V2 knowledge workbench ??????????????????????
 export interface IndexDocument {
   approved_chunks?: number;

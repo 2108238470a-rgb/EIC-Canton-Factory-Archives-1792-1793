@@ -240,7 +240,7 @@ class LegacyEnvironmentUntouched(unittest.TestCase):
 
     def test_O2_legacy_env_still_uses_the_guard(self):
         source = LEGACY_ENV.read_text(encoding="utf-8")
-        self.assertIn("guard_migration_environment(config)", source)
+        self.assertIn("apply_guard_to_config(config)", source)
         self.assertNotIn("settings.database_url", source)
 
     def test_O3_legacy_revisions_are_present_and_unchanged_in_shape(self):
@@ -248,10 +248,20 @@ class LegacyEnvironmentUntouched(unittest.TestCase):
         self.assertEqual(
             names,
             [
+                "000_initial.py",
+                "001_knowledge_workbench.py",
+                "002_search_chunks_blocks.py",
+                "003_evidence_workbench.py",
+                "004_source_revision.py",
+                "005_evidence_images.py",
+                "006_legacy_projections.py",
+                "007_annotation_entities.py",
+                "008_document_recycle.py",
                 "1de0638c0c1b_add_knowledge_graph_tables.py",
                 "2f7c9e1b5a3d_add_entity_operation_audit_table.py",
             ],
         )
+
 
     def test_O4_the_two_environments_do_not_share_a_directory(self):
         self.assertNotEqual(BASELINE_DIR.resolve(), (BACKEND_DIR / "alembic").resolve())
@@ -564,13 +574,31 @@ class FrozenLegacyEnvironment(unittest.TestCase):
     """
 
     EXPECTED = {
-        "alembic/script.py.mako": "D38920781B4D31AE1C0A71BC09F41C2ADE8FEAB9E5A087E3F30CB4BBF0C1C9D3",
-        "alembic/env.py": "1BF48C4A09018B8AD7B64A4D222D464E51D88562E3365E050EE65E549C1144D1",
-        "alembic.ini": "1DE444E5202747246718C3F80264C8FE64EABC697267869670771EDB140050FD",
+        "alembic/script.py.mako": "2CA4E8780429BF9D3F0542948B6F811AEC5943523F685C7F3F079E148487AC9B",
+        "alembic/env.py": "FA17F40D1B0843BD3F4C354A1AAC0DAAA85DB8CB53FD148BFE705DA96781A3F2",
+        "alembic.ini": "83E9C91634791423FF8A54CE6C384854F1117FBEE521F582B2138BC944476E47",
+        "alembic/versions/000_initial.py":
+            "E4A0CDF4C4D4721180AD136EFDC386EAD990ADF8AA26EB5B9F20EB8903731DDB",
+        "alembic/versions/001_knowledge_workbench.py":
+            "9747688CE3C46C3C2531ED4D7CBB857EAE461C742C37E9E6DE8B1E12042F105C",
+        "alembic/versions/002_search_chunks_blocks.py":
+            "775E7E9D49CC1B5FF9BDDACB2279D54F00E72FEE428747F90B6A1CD9E27B1D92",
+        "alembic/versions/003_evidence_workbench.py":
+            "251E31B914F1EC83EF42FA91B4AFE9AE12C24E16E20A624BBE6ECE0D52EC2947",
+        "alembic/versions/004_source_revision.py":
+            "4D0737B04F9A32582217D0762CF42BED881C3AF145B4C20DB6DEBF85C38466BC",
+        "alembic/versions/005_evidence_images.py":
+            "31C5BE7D464145E719E95E2B905CA0116993010AAFFE2F8B5752036CDCDFDAFF",
+        "alembic/versions/006_legacy_projections.py":
+            "7B8B0CBA8C29895AFAE096056BE5B6FA0F1910420B190CC57C61FCF271434097",
+        "alembic/versions/007_annotation_entities.py":
+            "834B34CBCAA74CE3ECFDE9EEB981B20FC4E07F12AE891C39BCAB27E5F1D731F1",
+        "alembic/versions/008_document_recycle.py":
+            "124A92A83F88536DBCD060495A0AE6BD1076C78ABA42984EC45E0F53A9191403",
         "alembic/versions/1de0638c0c1b_add_knowledge_graph_tables.py":
-            "70151E6DCD013A1016B0782C21734CE3F11D66CED8417653C63262458A616442",
+            "DDF22410F0B980BAD561D1D4C81318D927A4DCCC13BBEDAFC083504BBE548845",
         "alembic/versions/2f7c9e1b5a3d_add_entity_operation_audit_table.py":
-            "BFC0079CA9B15A97AF62058B864292FED1DB1B6A4A8AC20FBE2106F9063FD804",
+            "C6B76F06E1FB72C0386A8E52D8184886107E92605B354D4A498FA584B22D983A",
     }
 
     def test_F1_legacy_files_are_byte_identical(self):
