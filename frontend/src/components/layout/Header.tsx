@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { FileText, Upload, Home, Sparkles, GitFork, ShieldCheck, MessageSquare, Bot, FlaskConical } from "lucide-react";
+import { FileText, Upload, Home, Sparkles, GitFork, ShieldCheck, MessageSquare, Bot, FlaskConical, Library, ScrollText, ClipboardCheck } from "lucide-react";
 
 export function Header() {
   const pathname = usePathname();
@@ -17,6 +17,11 @@ export function Header() {
     { href: "/kg/workflow", label: "研究流程", icon: FlaskConical },
     { href: "/rag", label: "智能问答", icon: MessageSquare },
     { href: "/agent", label: "AI 研究员", icon: Bot },
+    // V2 knowledge workbench (merged from upstream): entries live on the same pill row
+    // so the new pages are reachable at all — they were URL-only before.
+    { href: "/knowledge", label: "知识库", icon: Library },
+    { href: "/research", label: "研究档案", icon: ScrollText },
+    { href: "/reviews", label: "审核队列", icon: ClipboardCheck },
   ];
 
   return (
@@ -32,7 +37,7 @@ export function Header() {
           </div>
         </Link>
 
-        <nav className="flex items-center gap-2 rounded-full border border-white/70 bg-white/75 p-1.5 shadow-sm">
+        <nav className="flex max-w-[70vw] items-center gap-1 overflow-x-auto rounded-full border border-white/70 bg-white/75 p-1.5 shadow-sm lg:gap-2">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive =
@@ -44,7 +49,7 @@ export function Header() {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all",
+                  "flex shrink-0 items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-all lg:px-4",
                   isActive
                     ? "bg-slate-900 text-white shadow-sm"
                     : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
