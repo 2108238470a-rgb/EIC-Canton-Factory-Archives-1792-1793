@@ -10,6 +10,7 @@ interface PageViewerProps {
   page: Page;
   blocks: Block[];
   selectedBlockId: number | null;
+  targetBlockId?: number | null;
   onBlockSelect: (block: Block) => void;
 }
 
@@ -24,6 +25,7 @@ export function PageViewer({
   page,
   blocks,
   selectedBlockId,
+  targetBlockId,
   onBlockSelect,
 }: PageViewerProps) {
   const stageRef = useRef<HTMLDivElement>(null);
@@ -132,6 +134,7 @@ export function PageViewer({
             <BboxOverlay
               blocks={blocks}
               selectedBlockId={selectedBlockId}
+              targetBlockId={targetBlockId}
               onBlockClick={onBlockSelect}
               imageWidth={imageWidth}
               imageHeight={imageHeight}

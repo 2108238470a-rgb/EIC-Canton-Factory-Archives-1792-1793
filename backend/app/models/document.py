@@ -28,6 +28,8 @@ class DocumentType(str, enum.Enum):
     """Document file type."""
     PDF = "pdf"
     IMAGE = "image"
+    #: Word documents carry their text directly, so they never go through OCR.
+    DOCX = "docx"
 
 
 class Document(Base):
@@ -46,6 +48,8 @@ class Document(Base):
     full_markdown = Column(Text, nullable=True)
     status = Column(Enum(DocumentStatus), default=DocumentStatus.PENDING)
     error_message = Column(Text, nullable=True)
+    #: SHA-256 of the uploaded bytes; the content identity used for de-duplication.
+    content_hash = Column(String(64), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

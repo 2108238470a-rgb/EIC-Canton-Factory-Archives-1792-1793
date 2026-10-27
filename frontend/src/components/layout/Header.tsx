@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { FileText, Upload, Home, Sparkles } from "lucide-react";
+import { FileText, Upload, Home, Sparkles, GitFork, ShieldCheck, MessageSquare, Bot, FlaskConical } from "lucide-react";
 
 export function Header() {
   const pathname = usePathname();
@@ -12,6 +12,11 @@ export function Header() {
     { href: "/", label: "首页", icon: Home },
     { href: "/upload", label: "上传", icon: Upload },
     { href: "/documents", label: "文档列表", icon: FileText },
+    { href: "/kg/graph", label: "人物图谱", icon: GitFork },
+    { href: "/kg/review", label: "知识审核", icon: ShieldCheck },
+    { href: "/kg/workflow", label: "研究流程", icon: FlaskConical },
+    { href: "/rag", label: "智能问答", icon: MessageSquare },
+    { href: "/agent", label: "AI 研究员", icon: Bot },
   ];
 
   return (
@@ -30,7 +35,10 @@ export function Header() {
         <nav className="flex items-center gap-2 rounded-full border border-white/70 bg-white/75 p-1.5 shadow-sm">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href;
+            const isActive =
+              item.href === "/"
+                ? pathname === "/"
+                : pathname.startsWith(item.href);
             return (
               <Link
                 key={item.href}

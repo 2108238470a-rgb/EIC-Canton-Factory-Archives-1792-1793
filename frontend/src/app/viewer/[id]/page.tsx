@@ -9,14 +9,22 @@ import { Document, Page, Block, Task } from "@/types";
 import { PageViewer } from "@/components/viewer/PageViewer";
 import { BlockPanel } from "@/components/viewer/BlockPanel";
 import { PageNavigator } from "@/components/viewer/PageNavigator";
-import { ArrowLeft, Loader2, LayoutPanelLeft, ScanText, BookText, FileText } from "lucide-react";
+import { ArrowLeft, Loader2, LayoutPanelLeft, ScanText, BookText, FileText, AlertCircle, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+interface BlockAlertInfo {
+  type: "mismatch" | "not_found" | "invalid";
+  message: string;
+  correctDocId?: number;
+  correctPage?: number;
+}
 
 export default function ViewerPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const documentId = Number(params.id);
   const initialPage = Number(searchParams.get("page")) || 1;
+  const requestedBlockId = searchParams.get("block_id") ? Number(searchParams.get("block_id")) : null;
 
   const [document, setDocument] = useState<Document | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
@@ -29,6 +37,9 @@ export default function ViewerPage() {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [showBlockList, setShowBlockList] = useState(true);
   const [readingMode, setReadingMode] = useState<"page" | "document">("page");
+
+  const [blockAlert, setBlockAlert] = useState<BlockAlertInfo | null>(null);
+  const [pageAlert, setPageAlert] = useState<string | null>(null);
 
   const fetchDocumentData = useCallback(async () => {
     const doc = await documentApi.get(documentId);
@@ -52,9 +63,17 @@ export default function ViewerPage() {
 
     setCurrentPage(pageDetail);
     setBlocks(nextBlocks);
-    setSelectedBlock((prev) => nextBlocks.find((item) => item.id === prev?.id) || nextBlocks[0] || null);
+    setSelectedBlock((prev) => {
+      if (requestedBlockId) {
+        const targeted = nextBlocks.find((item) => item.id === requestedBlockId);
+        if (targeted) return targeted;
+        // 若指定了 block_id 但当前页无此切片，坚决不静默选中当前页第 1 条记录
+        return null;
+      }
+      return nextBlocks.find((item) => item.id === prev?.id) || nextBlocks[0] || null;
+    });
     return { page: pageDetail, blocks: nextBlocks };
-  }, [pages]);
+  }, [pages, requestedBlockId]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -83,6 +102,78 @@ export default function ViewerPage() {
 
     fetchPageData();
   }, [pages, currentPageNumber, fetchCurrentPageData]);
+
+  // REF-STAGE8-FE01: 校验 URL 中的 block_id 真实归属与页码
+  useEffect(() => {
+    if (!requestedBlockId || pages.length === 0) return;
+
+    let isMounted = true;
+    const verifyRequestedBlock = async () => {
+      try {
+        const block = await blockApi.get(requestedBlockId);
+        if (!isMounted) return;
+        if (!block || !block.page_id) {
+          setBlockAlert({
+            type: "not_found",
+            message: `切片 Block #${requestedBlockId} 不存在或未关联物理页面。`,
+          });
+          return;
+        }
+
+        const blockPage = await pageApi.get(block.page_id);
+        if (!isMounted) return;
+        if (!blockPage || !blockPage.document_id) {
+          setBlockAlert({
+            type: "invalid",
+            message: `切片 Block #${requestedBlockId} 所属页面记录异常。`,
+          });
+          return;
+        }
+
+        if (blockPage.document_id !== documentId) {
+          setBlockAlert({
+            type: "mismatch",
+            message: `切片 Block #${requestedBlockId} 实际归属于卷宗 #${blockPage.document_id}（第 ${blockPage.page_number} 页），与当前浏览卷宗 #${documentId} 不匹配。`,
+            correctDocId: blockPage.document_id,
+            correctPage: blockPage.page_number,
+          });
+          // 禁止误导：清空选中的错误切片
+          setSelectedBlock(null);
+          return;
+        }
+
+        // 若切片属于当前文档，但当前页码与切片实际所在页码不一致，自动切换至切片实际所在页！
+        if (currentPageNumber !== blockPage.page_number) {
+          setCurrentPageNumber(blockPage.page_number);
+        }
+      } catch (err: any) {
+        if (!isMounted) return;
+        setBlockAlert({
+          type: "not_found",
+          message: `未找到切片 Block #${requestedBlockId}（该 ID 在数据库中不存在或已失效）。`,
+        });
+      }
+    };
+
+    verifyRequestedBlock();
+    return () => {
+      isMounted = false;
+    };
+  }, [requestedBlockId, documentId, pages.length]);
+
+  // REF-STAGE8-FE01: 校验页码越界
+  useEffect(() => {
+    if (pages.length === 0) return;
+    const rawPage = searchParams.get("page") ? Number(searchParams.get("page")) : null;
+    if (rawPage) {
+      const maxP = Math.max(...pages.map((p) => p.page_number));
+      const minP = Math.min(...pages.map((p) => p.page_number));
+      if (rawPage > maxP || rawPage < minP) {
+        setPageAlert(`请求的页码（第 ${rawPage} 页）超出卷宗范围（共 ${minP}–${maxP} 页），已自动定位至第 ${minP} 页。`);
+        setCurrentPageNumber(minP);
+      }
+    }
+  }, [pages, searchParams]);
 
   const handleBlockSelect = useCallback((block: Block) => {
     setSelectedBlock(block);
@@ -173,6 +264,8 @@ export default function ViewerPage() {
 
   const currentPageMarkdown = currentPage?.markdown_content || "";
   const fullMarkdown = document.full_markdown || pages.map((page) => page.markdown_content || "").filter(Boolean).join("\n\n");
+  // A Word document has no page image: its text blocks are the archival content.
+  const isDocxDocument = document.file_type === "docx";
 
   return (
     <div className="app-shell py-6 md:py-8">
@@ -187,7 +280,11 @@ export default function ViewerPage() {
           <div>
             <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
               <ScanText className="h-3.5 w-3.5" />
-              {document.file_type === "pdf" ? "PDF 多页阅读器" : "单页图像阅读器"}
+              {document.file_type === "pdf"
+                ? "PDF 多页阅读器"
+                : isDocxDocument
+                  ? "Word 文本阅读器"
+                  : "单页图像阅读器"}
             </div>
             <h1 className="max-w-3xl text-xl font-semibold text-slate-900 md:text-2xl">
               {document.original_filename}
@@ -229,15 +326,79 @@ export default function ViewerPage() {
         </div>
       </div>
 
+      {/* REF-STAGE8-FE01: 错误与不匹配警示横幅 */}
+      {blockAlert && (
+        <div
+          className={cn(
+            "mb-5 flex flex-col items-start justify-between gap-3 rounded-[1.5rem] border p-4.5 text-sm shadow-sm md:flex-row md:items-center",
+            blockAlert.type === "mismatch"
+              ? "border-amber-500/40 bg-amber-500/10 text-amber-900"
+              : "border-rose-500/40 bg-rose-500/10 text-rose-900"
+          )}
+        >
+          <div className="flex items-center gap-3">
+            <AlertCircle className="h-5 w-5 shrink-0 text-amber-600" />
+            <span className="font-medium">{blockAlert.message}</span>
+          </div>
+          {blockAlert.correctDocId && (
+            <Link
+              href={`/viewer/${blockAlert.correctDocId}?page=${blockAlert.correctPage}&block_id=${requestedBlockId}`}
+            >
+              <Button
+                size="sm"
+                className="gap-1.5 rounded-full bg-amber-600 text-xs font-medium text-white hover:bg-amber-500 shrink-0"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                跳转至目标卷宗 #{blockAlert.correctDocId}（第 {blockAlert.correctPage} 页）
+              </Button>
+            </Link>
+          )}
+        </div>
+      )}
+
+      {pageAlert && (
+        <div className="mb-5 flex items-center gap-3 rounded-[1.5rem] border border-sky-500/40 bg-sky-500/10 p-4.5 text-sm text-sky-900 shadow-sm">
+          <AlertCircle className="h-5 w-5 shrink-0 text-sky-600" />
+          <span className="font-medium">{pageAlert}</span>
+        </div>
+      )}
+
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_26rem]">
         <div className="min-w-0">
-          {currentPage && (
+          {currentPage && !isDocxDocument && (
             <PageViewer
               page={currentPage}
               blocks={blocks}
               selectedBlockId={selectedBlock?.id || null}
+              targetBlockId={requestedBlockId}
               onBlockSelect={handleBlockSelect}
             />
+          )}
+          {currentPage && isDocxDocument && (
+            <div className="soft-card space-y-3 p-6" data-docx-text="true">
+              <p className="text-xs text-slate-500">
+                Word 文档没有扫描图像：下面显示导入时保存的原始段落文本（按区块顺序，未翻译、未改写）。
+              </p>
+              <div className="space-y-2">
+                {blocks.length === 0 && (
+                  <p className="text-sm italic text-slate-400">该 Word 文档没有可用文本区块。</p>
+                )}
+                {blocks.map((block) => (
+                  <p
+                    key={block.id}
+                    data-block-id={block.id}
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-sm leading-relaxed",
+                      selectedBlock?.id === block.id
+                        ? "border-primary/50 bg-primary/5 text-slate-900"
+                        : "border-slate-200 bg-white/70 text-slate-700"
+                    )}
+                  >
+                    {block.ocr_text_corrected || block.ocr_text_raw || "（空段落）"}
+                  </p>
+                ))}
+              </div>
+            </div>
           )}
           {document.file_type === "pdf" && (
             <PageNavigator
@@ -265,13 +426,22 @@ export default function ViewerPage() {
                     className={cn(
                       "w-full rounded-2xl border px-4 py-3 text-left transition-all",
                       selectedBlock?.id === block.id
-                        ? "border-primary/20 bg-primary/10 shadow-sm"
+                        ? block.id === requestedBlockId
+                          ? "border-indigo-600 bg-indigo-50/90 shadow-md ring-2 ring-indigo-500/30"
+                          : "border-primary/20 bg-primary/10 shadow-sm"
                         : "border-slate-200 bg-white hover:border-primary/20 hover:bg-slate-50"
                     )}
                     onClick={() => handleBlockSelect(block)}
                   >
                     <div className="mb-1 flex items-center justify-between gap-3">
-                      <span className="text-sm font-medium text-slate-900">区块 {block.block_index + 1}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-slate-900">区块 {block.block_index + 1}</span>
+                        {block.id === requestedBlockId && (
+                          <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-semibold text-white shadow-xs">
+                            目标切片 #{requestedBlockId}
+                          </span>
+                        )}
+                      </div>
                       <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">
                         {block.block_label || "text"}
                       </span>
