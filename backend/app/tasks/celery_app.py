@@ -11,6 +11,9 @@ celery_app = Celery(
         "app.tasks.ocr_tasks",
         "app.tasks.gpt_tasks",
         "app.tasks.kg_tasks",
+        "app.tasks.rag_tasks",
+        "app.tasks.knowledge_tasks",
+        "app.tasks.insight_tasks",
     ],
 
 )

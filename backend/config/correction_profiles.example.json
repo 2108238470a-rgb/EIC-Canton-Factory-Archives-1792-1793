@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "documents": {
+    "99999": {
+      "languages": ["English"],
+      "document_type": "handwritten",
+      "date_range": "仅填人工确认的年代，示例 ID 99999 请换成实际档案 ID",
+      "verified_terms": []
+    }
+  }
+}

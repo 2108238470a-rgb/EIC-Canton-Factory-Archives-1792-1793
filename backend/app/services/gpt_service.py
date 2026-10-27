@@ -1,4 +1,5 @@
 """GPT service for text processing."""
+
 import asyncio
 import json
 import re
@@ -16,6 +17,8 @@ from openai import (
 from pydantic import ValidationError
 
 from app.config import settings
+from app.services.correction_quality import FAITHFUL_PROMPT, assess_correction
+from app.services.correction_profiles import CorrectionProfile, profile_audit
 from app.core import logger, GPTServiceError
 from app.schemas import (
     GPTBlockProcessingResultSchema,
@@ -142,12 +145,13 @@ class GPTService:
                 usage = self._normalize_usage(response.usage)
                 logger.info(
                     "GPT usage model=%s mode=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s",
-                    self.model, mode, usage.prompt_tokens,
-                    usage.completion_tokens, usage.total_tokens,
+                    self.model,
+                    mode,
+                    usage.prompt_tokens,
+                    usage.completion_tokens,
+                    usage.total_tokens,
                 )
-                return GPTCompletionResultSchema(
-                    text=result.strip(), token_usage=usage
-                )
+                return GPTCompletionResultSchema(text=result.strip(), token_usage=usage)
             except GPTServiceError:
                 raise
             except AuthenticationError as exc:
@@ -160,7 +164,7 @@ class GPTService:
                 ) from exc
             except APIConnectionError as exc:
                 if attempt < max_retries:
-                    delay = max(0.0, settings.gpt_retry_backoff_seconds) * (2 ** attempt)
+                    delay = max(0.0, settings.gpt_retry_backoff_seconds) * (2**attempt)
                     logger.warning(
                         "Transient GPT connection error model=%s mode=%s retry=%s/%s delay=%.1fs error=%s",
                         self.model,
@@ -172,7 +176,11 @@ class GPTService:
                     )
                     await asyncio.sleep(delay)
                     continue
-                error_kind = "timed out" if isinstance(exc, APITimeoutError) else "connection failed"
+                error_kind = (
+                    "timed out"
+                    if isinstance(exc, APITimeoutError)
+                    else "connection failed"
+                )
                 logger.error(
                     "GPT request %s model=%s mode=%s attempts=%s read_timeout=%ss error=%s",
                     error_kind,
@@ -189,7 +197,7 @@ class GPTService:
             except APIStatusError as exc:
                 retryable = exc.status_code == 429 or exc.status_code >= 500
                 if retryable and attempt < max_retries:
-                    delay = max(0.0, settings.gpt_retry_backoff_seconds) * (2 ** attempt)
+                    delay = max(0.0, settings.gpt_retry_backoff_seconds) * (2**attempt)
                     logger.warning(
                         "Transient GPT HTTP error model=%s mode=%s status=%s retry=%s/%s delay=%.1fs",
                         self.model,
@@ -206,7 +214,7 @@ class GPTService:
                     self.model,
                     mode,
                     exc.status_code,
-                    str(exc.response.text if hasattr(exc, 'response') else '')[:200],
+                    str(exc.response.text if hasattr(exc, "response") else "")[:200],
                 )
                 raise GPTServiceError(
                     f"GPT provider returned HTTP {exc.status_code}. "
@@ -222,21 +230,24 @@ class GPTService:
                 )
                 raise GPTServiceError(str(exc)) from exc
 
-
     async def process_text_with_usage(
         self,
         text: str,
         mode: str,
         context: Optional[str] = None,
+        document_profile: Optional[CorrectionProfile] = None,
     ) -> GPTCompletionResultSchema:
         """Process text and return normalized token usage."""
         if not text or not text.strip():
             return GPTCompletionResultSchema(text="", token_usage=TokenUsageSchema())
 
-        try:
-            system_prompt = self._load_prompt(mode)
-        except GPTServiceError:
-            system_prompt = self._get_default_prompt(mode)
+        if mode == "ocr_correction":
+            system_prompt = FAITHFUL_PROMPT
+        else:
+            try:
+                system_prompt = self._load_prompt(mode)
+            except GPTServiceError:
+                system_prompt = self._get_default_prompt(mode)
 
         user_message = text
         if context:
@@ -244,6 +255,17 @@ class GPTService:
                 "Use the context only as secondary documentary evidence. "
                 "Do not copy, continue, or substitute context text into the target passage."
                 f"\n\nContext:\n{context}\n\nText to process:\n{text}"
+            )
+        if mode == "ocr_correction":
+            user_message = json.dumps(
+                {
+                    "document_profile": (
+                        document_profile or CorrectionProfile()
+                    ).model_dump(),
+                    "context": context or "",
+                    "target": text,
+                },
+                ensure_ascii=False,
             )
         result = await self._request_completion(system_prompt, user_message, mode)
         logger.debug("GPT %s completed for text length %s", mode, len(text))
@@ -257,7 +279,11 @@ class GPTService:
     ) -> str:
         """Process text while preserving the legacy text-only return value."""
         result = await self.process_text_with_usage(text, mode, context)
-        return result.text
+        return (
+            assess_correction(text, result.text)["text"]
+            if mode == "ocr_correction"
+            else result.text
+        )
 
     async def correct_ocr(self, text: str, context: Optional[str] = None) -> str:
         """Correct OCR errors in text."""
@@ -267,7 +293,9 @@ class GPTService:
         """Rewrite text in modern English."""
         return await self.process_text(text, "modern_english", context)
 
-    async def translate_to_chinese(self, text: str, context: Optional[str] = None) -> str:
+    async def translate_to_chinese(
+        self, text: str, context: Optional[str] = None
+    ) -> str:
         """Translate text to Chinese."""
         return await self.process_text(text, "translation_zh", context)
 
@@ -285,18 +313,27 @@ class GPTService:
         text: str,
         modes: List[str],
         context: Optional[str] = None,
+        document_profile: Optional[CorrectionProfile] = None,
     ) -> GPTBlockProcessingResultSchema:
         """Process one block and aggregate usage across requested modes."""
         results: Dict[str, str] = {}
         usage = TokenUsageSchema()
         current_text = text
+        quality_report = {}
 
         if "ocr_correction" in modes:
             completion = await self.process_text_with_usage(
-                current_text, "ocr_correction", context
+                current_text,
+                "ocr_correction",
+                context,
+                document_profile=document_profile,
             )
-            results["ocr_text_corrected"] = completion.text
-            current_text = completion.text
+            quality_report = assess_correction(current_text, completion.text)
+            quality_report.update(
+                profile_audit(document_profile or CorrectionProfile())
+            )
+            results["ocr_text_corrected"] = quality_report["text"]
+            current_text = quality_report["text"]
             self._add_usage(usage, completion.token_usage)
 
         if "modern_english" in modes:
@@ -318,7 +355,9 @@ class GPTService:
             results["translation_zh"] = completion.text
             self._add_usage(usage, completion.token_usage)
 
-        return GPTBlockProcessingResultSchema(results=results, token_usage=usage)
+        return GPTBlockProcessingResultSchema(
+            results=results, token_usage=usage, quality_report=quality_report
+        )
 
     async def process_block(
         self,
@@ -350,7 +389,9 @@ class GPTService:
 
         output_ids = [item.block_id for item in response.blocks]
         if len(output_ids) != len(set(output_ids)):
-            raise GPTServiceError("Page correction response contains duplicate block IDs")
+            raise GPTServiceError(
+                "Page correction response contains duplicate block IDs"
+            )
         output_id_set = set(output_ids)
         missing_ids = requested_ids - output_id_set
         unknown_ids = output_id_set - requested_ids
@@ -367,22 +408,47 @@ class GPTService:
         self,
         request: PageCorrectionRequestSchema,
     ) -> PageCorrectionCallResultSchema:
-        """Correct all eligible blocks on one page in one LLM call."""
+        """Correct a page with bounded output batches; validate all targets before return."""
         requested_ids = {item.block_id for item in request.blocks}
         if len(requested_ids) != len(request.blocks):
-            raise GPTServiceError("Page correction request contains duplicate block IDs")
-
-        try:
-            system_prompt = self._load_prompt("ocr_correction_page")
-        except GPTServiceError:
-            system_prompt = self._get_default_prompt("ocr_correction_page")
+            raise GPTServiceError(
+                "Page correction request contains duplicate block IDs"
+            )
+        if (
+            len(request.blocks) > 1
+            and sum(len(b.ocr_text_raw) for b in request.blocks) > 3500
+        ):
+            batches = []
+            batch = []
+            size = 0
+            for block in request.blocks:
+                if batch and size + len(block.ocr_text_raw) > 3500:
+                    batches.append(batch)
+                    batch = []
+                    size = 0
+                batch.append(block)
+                size += len(block.ocr_text_raw)
+            if batch:
+                batches.append(batch)
+            outputs = []
+            reports = {}
+            usage = TokenUsageSchema()
+            for batch in batches:
+                result = await self.correct_ocr_page(
+                    request.model_copy(update={"blocks": batch})
+                )
+                outputs.extend(result.blocks)
+                reports.update(result.quality_reports)
+                self._add_usage(usage, result.token_usage)
+            return PageCorrectionCallResultSchema(
+                blocks=outputs, quality_reports=reports, token_usage=usage
+            )
+        system_prompt = FAITHFUL_PROMPT
         user_message = json.dumps(
             request.model_dump(), ensure_ascii=False, separators=(",", ":")
         )
         response_format = (
-            PAGE_CORRECTION_RESPONSE_FORMAT
-            if settings.gpt_structured_output
-            else None
+            {"type": "json_object"} if settings.gpt_structured_output else None
         )
         completion = await self._request_completion(
             system_prompt,
@@ -396,8 +462,22 @@ class GPTService:
         )
         response = self._parse_page_response(completion.text, requested_ids)
         output_by_id = {item.block_id: item for item in response.blocks}
-        ordered = [output_by_id[item.block_id] for item in request.blocks]
+        reports = {
+            item.block_id: assess_correction(
+                item.ocr_text_raw, output_by_id[item.block_id].ocr_text_corrected
+            )
+            for item in request.blocks
+        }
+        for report in reports.values():
+            report.update(profile_audit(request.document_profile))
+        ordered = [
+            output_by_id[item.block_id].model_copy(
+                update={"ocr_text_corrected": reports[item.block_id]["text"]}
+            )
+            for item in request.blocks
+        ]
         return PageCorrectionCallResultSchema(
+            quality_reports=reports,
             blocks=ordered,
             token_usage=completion.token_usage,
         )
@@ -408,17 +488,45 @@ class GPTService:
         Production deployments should provide custom prompts via the prompts/
         directory. These fallback prompts are generic placeholders.
         """
+        if mode in {"ocr_correction", "ocr_correction_page"}:
+            return FAITHFUL_PROMPT
         prompts = {
             "ocr_correction": """You are an OCR correction assistant. Correct recognition errors in the provided text while preserving the original meaning and style. Return only the corrected text without explanations.""",
-
             "ocr_correction_page": """You are an OCR correction assistant. Correct recognition errors in the provided text blocks while preserving the original meaning and style. Return JSON only as {"blocks":[{"block_id":1,"ocr_text_corrected":"..."}]}. Return every requested block exactly once, in input order, without extra fields or explanations.""",
-
             "modern_english": """You are a text modernization assistant. Rewrite the provided historical text in modern English while preserving the original meaning. Return only the modernized text without explanations.""",
-
             "translation_zh": """You are a translation assistant. Translate the provided text into natural, readable Chinese. Return only the Chinese translation without explanations.""",
         }
 
         return prompts.get(mode, prompts["ocr_correction"])
+
+    async def complete(
+        self,
+        system_prompt: str,
+        user_message: str,
+        mode: str,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        response_format: Optional[Dict[str, Any]] = None,
+        extra_body: Optional[Dict[str, Any]] = None,
+    ) -> GPTCompletionResultSchema:
+        """Run one chat completion with the shared retry policy.
+
+        Args:
+            system_prompt: System instructions.
+            user_message: User content.
+            mode: Label used in usage logs.
+            max_tokens: Completion token limit.
+
+        Returns:
+            Completion text and token usage.
+        """
+        return await self._request_completion(
+            system_prompt,
+            user_message,
+            mode,
+            max_tokens=max_tokens,
+            response_format=response_format,
+            extra_body=extra_body,
+        )
 
 
 # Singleton instance

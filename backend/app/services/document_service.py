@@ -1,11 +1,17 @@
 """Document service."""
+
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
 from app.models import Document, DocumentStatus, DocumentType
-from app.schemas import DocumentCreate, DocumentUpdate, DocumentResponse, DocumentListResponse
+from app.schemas import (
+    DocumentCreate,
+    DocumentUpdate,
+    DocumentResponse,
+    DocumentListResponse,
+)
 from app.repositories import DocumentRepository
 from app.services.docx_service import DocxParseError, create_docx_document
 from app.utils import (
@@ -82,7 +88,8 @@ class DocumentService:
         self,
         page: int = 1,
         page_size: int = 20,
-        status: Optional[DocumentStatus] = None
+        status: Optional[DocumentStatus] = None,
+        archived: bool = False,
     ) -> Tuple[List[Document], int]:
         """
         Get documents with pagination.
@@ -91,11 +98,15 @@ class DocumentService:
             Tuple of (documents, total_count)
         """
         skip = (page - 1) * page_size
-        documents = self.repo.get_all(skip=skip, limit=page_size, status=status)
-        total = self.repo.count(status=status)
+        documents = self.repo.get_all(
+            skip=skip, limit=page_size, status=status, archived=archived
+        )
+        total = self.repo.count(status=status, archived=archived)
         return documents, total
 
-    def update_document(self, document_id: int, data: DocumentUpdate) -> Optional[Document]:
+    def update_document(
+        self, document_id: int, data: DocumentUpdate
+    ) -> Optional[Document]:
         """Update document."""
         return self.repo.update(document_id, data)
 
@@ -103,7 +114,7 @@ class DocumentService:
         self,
         document_id: int,
         status: DocumentStatus,
-        error_message: Optional[str] = None
+        error_message: Optional[str] = None,
     ) -> Optional[Document]:
         """Update document status."""
         return self.repo.update_status(document_id, status, error_message)
@@ -114,8 +125,18 @@ class DocumentService:
         if not document:
             return False
 
-        # Delete files
-        delete_document_files(document_id, document.file_path)
+        # Keep files and evidence available to existing citations. Default
+        # document lists, indexing and retrieval exclude the recycle bin.
+        from datetime import datetime
 
-        # Delete database record
-        return self.repo.delete(document_id)
+        document.archived_at = document.archived_at or datetime.utcnow()
+        self.db.commit()
+        return True
+
+    def restore_document(self, document_id: int) -> bool:
+        document = self.repo.get_by_id(document_id)
+        if not document:
+            return False
+        document.archived_at = None
+        self.db.commit()
+        return True

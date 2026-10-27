@@ -1,4 +1,5 @@
 """Page schemas."""
+
 from datetime import datetime
 from typing import Optional, List
 
@@ -7,13 +8,17 @@ from pydantic import BaseModel
 
 class PageBase(BaseModel):
     """Base page schema."""
+
     page_number: int
 
 
 class PageCreate(BaseModel):
     """Schema for page creation."""
+
     document_id: int
     page_number: int
+    original_page_label: Optional[str] = None
+    folio_side: Optional[str] = None
     image_path: Optional[str] = None
     width: Optional[int] = None
     height: Optional[int] = None
@@ -21,6 +26,9 @@ class PageCreate(BaseModel):
 
 class PageUpdate(BaseModel):
     """Schema for page update."""
+
+    original_page_label: Optional[str] = None
+    folio_side: Optional[str] = None
     image_path: Optional[str] = None
     visualization_path: Optional[str] = None
     markdown_content: Optional[str] = None
@@ -31,8 +39,11 @@ class PageUpdate(BaseModel):
 
 class PageBriefResponse(BaseModel):
     """Brief page response for document list."""
+
     id: int
     page_number: int
+    original_page_label: Optional[str] = None
+    folio_side: Optional[str] = None
     image_path: Optional[str] = None
     markdown_content: Optional[str] = None
     width: Optional[int] = None
@@ -44,9 +55,12 @@ class PageBriefResponse(BaseModel):
 
 class PageResponse(BaseModel):
     """Schema for page response."""
+
     id: int
     document_id: int
     page_number: int
+    original_page_label: Optional[str] = None
+    folio_side: Optional[str] = None
     image_path: Optional[str] = None
     visualization_path: Optional[str] = None
     markdown_content: Optional[str] = None
@@ -62,6 +76,7 @@ class PageResponse(BaseModel):
 
 class PageDetailResponse(PageResponse):
     """Schema for page response with blocks."""
+
     blocks: List["BlockResponse"] = []
 
     class Config:
@@ -70,4 +85,5 @@ class PageDetailResponse(PageResponse):
 
 # Import here to avoid circular imports
 from app.schemas.block import BlockResponse
+
 PageDetailResponse.model_rebuild()

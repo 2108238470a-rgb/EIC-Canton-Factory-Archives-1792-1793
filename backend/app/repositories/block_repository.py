@@ -1,4 +1,5 @@
 """Block repository."""
+
 from typing import List, Mapping, Optional
 
 from sqlalchemy import or_
@@ -39,7 +40,7 @@ class BlockRepository:
         """Get all blocks for a page."""
         return (
             self.db.query(Block)
-            .filter(Block.page_id == page_id)
+            .filter(Block.page_id == page_id, Block.retired.is_(False))
             .order_by(Block.block_index)
             .all()
         )
@@ -47,10 +48,11 @@ class BlockRepository:
     def get_by_document(self, document_id: int) -> List[Block]:
         """Get all blocks for a document (via pages)."""
         from app.models import Page
+
         return (
             self.db.query(Block)
             .join(Page)
-            .filter(Page.document_id == document_id)
+            .filter(Page.document_id == document_id, Block.retired.is_(False))
             .order_by(Page.page_number, Block.block_index)
             .all()
         )
@@ -61,7 +63,9 @@ class BlockRepository:
             self.db.query(Block)
             .filter(
                 Block.page_id == page_id,
+                Block.retired.is_(False),
                 Block.ocr_text_raw.isnot(None),
+                Block.review_status != ReviewStatus.APPROVED,
                 or_(
                     Block.ocr_text_corrected.is_(None),
                     Block.ocr_correction_source_text.is_(None),
@@ -75,7 +79,7 @@ class BlockRepository:
     def update(self, block_id: int, data: BlockUpdate) -> Optional[Block]:
         """Update block."""
         block = self.get_by_id(block_id)
-        if not block:
+        if not block or block.retired:
             return None
 
         update_data = data.model_dump(exclude_unset=True)
@@ -88,16 +92,42 @@ class BlockRepository:
         self.db.refresh(block)
         return block
 
+    def update_generated(self, block_id: int, data: BlockUpdate, expected_raw: str):
+        """Publish automatic text only against the same unreviewed source."""
+        try:
+            block = (
+                self.db.query(Block)
+                .filter_by(id=block_id, retired=False)
+                .with_for_update()
+                .populate_existing()
+                .first()
+            )
+            if not block or block.ocr_text_raw != expected_raw:
+                raise ValueError("原文已变化，自动校正结果未写入，请刷新后重试")
+            if block.review_status == ReviewStatus.APPROVED:
+                raise ValueError("人工已复核的文本不会被自动校正覆盖")
+            values = data.model_dump(exclude_unset=True)
+            for key, value in values.items():
+                setattr(block, key, value)
+            if "ocr_text_corrected" in values:
+                block.ocr_correction_source_text = expected_raw
+            self.db.commit()
+            self.db.refresh(block)
+            return block
+        except Exception:
+            self.db.rollback()
+            raise
+
     def update_text_fields(
         self,
         block_id: int,
         ocr_text_corrected: Optional[str] = None,
         modern_english: Optional[str] = None,
-        translation_zh: Optional[str] = None
+        translation_zh: Optional[str] = None,
     ) -> Optional[Block]:
         """Update block text fields."""
         block = self.get_by_id(block_id)
-        if not block:
+        if not block or block.retired:
             return None
 
         if ocr_text_corrected is not None:
@@ -134,23 +164,34 @@ class BlockRepository:
         correction_ids = set(corrections)
         if not correction_ids or correction_ids != set(expected_raw_texts):
             raise ValueError("Correction IDs must exactly match source snapshot IDs")
-        if any(not isinstance(text, str) or not text.strip() for text in corrections.values()):
+        if any(
+            not isinstance(text, str) or not text.strip()
+            for text in corrections.values()
+        ):
             raise ValueError("Page corrections cannot contain blank text")
 
         try:
             blocks = (
                 self.db.query(Block)
-                .filter(Block.page_id == page_id, Block.id.in_(correction_ids))
+                .filter(
+                    Block.page_id == page_id,
+                    Block.retired.is_(False),
+                    Block.id.in_(correction_ids),
+                )
                 .with_for_update()
                 .populate_existing()
                 .order_by(Block.block_index)
                 .all()
             )
             if {block.id for block in blocks} != correction_ids:
-                raise ValueError("One or more correction blocks no longer exist on the page")
+                raise ValueError(
+                    "One or more correction blocks no longer exist on the page"
+                )
 
             for block in blocks:
                 expected_raw = expected_raw_texts[block.id]
+                if block.review_status == ReviewStatus.APPROVED:
+                    raise ValueError("人工已复核的文本不会被自动校正覆盖")
                 if block.ocr_text_raw != expected_raw:
                     raise ValueError(
                         f"OCR source changed while correcting block {block.id}"
@@ -168,10 +209,17 @@ class BlockRepository:
 
     def count_by_page(self, page_id: int) -> int:
         """Count blocks for a page."""
-        return self.db.query(Block).filter(Block.page_id == page_id).count()
+        return (
+            self.db.query(Block)
+            .filter(Block.page_id == page_id, Block.retired.is_(False))
+            .count()
+        )
 
     def delete_by_page(self, page_id: int) -> int:
         """Delete all blocks for a page."""
-        count = self.db.query(Block).filter(Block.page_id == page_id).delete()
+        blocks = self.get_by_page(page_id)
+        count = len(blocks)
+        for block in blocks:
+            block.retired = True
         self.db.commit()
         return count

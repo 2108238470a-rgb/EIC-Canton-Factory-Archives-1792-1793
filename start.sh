@@ -46,6 +46,17 @@ echo ""
 # --- 2. 后端 FastAPI ---
 echo "[2/4] 启动后端 FastAPI 服务..."
 cd "$BACKEND_DIR"
+
+# 检测并使用正确的conda环境
+if command -v conda &> /dev/null; then
+    # 尝试激活pdf2cn环境
+    if conda env list | grep -q "pdf2cn"; then
+        echo "      使用 conda 环境: pdf2cn"
+        eval "$(conda shell.bash hook)"
+        conda activate pdf2cn
+    fi
+fi
+
 python -m app.main &
 BACKEND_PID=$!
 echo "      ✓ FastAPI 启动中 (PID: $BACKEND_PID, http://localhost:8000)"

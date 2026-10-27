@@ -1,0 +1,20 @@
+# Direct versions from the verified running backend, 2026-10-20
+fastapi==0.136.0
+uvicorn==0.44.0
+sqlalchemy==2.1.5
+psycopg2-binary==2.9.13
+psycopg==3.3.6
+pydantic==2.11.10
+pydantic-settings==2.16.0
+python-multipart==0.0.26
+celery==5.6.3
+redis==8.1.0
+httpx==0.28.1
+openai==2.32.0
+PyMuPDF==1.25.2
+Pillow==11.3.0
+python-dotenv==1.2.4
+alembic==1.20.0
+pgvector==0.5.1
+jieba==0.42.1
+python-docx==1.2.0

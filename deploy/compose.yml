@@ -1,0 +1,80 @@
+name: eic-research
+x-app: &app
+  build: ../backend
+  restart: unless-stopped
+  environment: &environment
+    DEBUG: "false"
+    STORAGE_PATH: /app/storage
+    UPLOAD_PATH: /app/storage/uploads
+    PAGES_PATH: /app/storage/pages
+    RESULTS_PATH: /app/storage/results
+    EXPORTS_PATH: /app/storage/exports
+    REDIS_URL: redis://redis:6379/0
+    CELERY_BROKER_URL: redis://redis:6379/0
+    CELERY_RESULT_BACKEND: redis://redis:6379/0
+    CELERY_WORKER_POOL: solo
+    CELERY_WORKER_CONCURRENCY: "1"
+    PADDLE_OCR_URL: ${PADDLE_OCR_URL:-http://127.0.0.1:18888/layout-parsing}
+    GPT_BASE_URL: ${GPT_BASE_URL:-https://api.siliconflow.cn/v1}
+    GPT_MODEL: ${GPT_MODEL:-deepseek-ai/DeepSeek-V3.2}
+    CORS_ORIGINS: '["https://archives.mjyblog.top"]'
+  secrets: [database_url, gpt_api_key]
+  volumes: [storage:/app/storage]
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: eic
+      POSTGRES_DB: eic
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    volumes: [postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U eic -d eic"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes: [redis:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      retries: 20
+  backend:
+    <<: *app
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      start_period: 90s
+      retries: 20
+  worker:
+    <<: *app
+    depends_on:
+      backend: {condition: service_healthy}
+    command: [celery, -A, app.tasks.celery_app, worker, --loglevel=INFO, --hostname=research@%h, --concurrency=1, --pool=solo]
+  frontend:
+    build: ../frontend
+    restart: unless-stopped
+    depends_on:
+      backend: {condition: service_healthy}
+  gateway:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    ports: ["127.0.0.1:3108:8080"]
+    volumes:
+      - ./gateway.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./secrets/team.htpasswd:/etc/nginx/team.htpasswd:ro
+    depends_on: [frontend]
+secrets:
+  database_url: {file: ./secrets/database_url}
+  db_password: {file: ./secrets/db_password}
+  gpt_api_key: {file: ./secrets/gpt_api_key}
+volumes:
+  postgres:
+  redis:
+  storage:

@@ -1,4 +1,5 @@
 """OCR service for processing documents."""
+
 import base64
 import json
 import time
@@ -19,6 +20,8 @@ from app.utils import (
     get_image_dimensions,
 )
 from app.core import logger, OCRServiceError
+from app.config import settings
+from app.services.correction_quality import ocr_warnings
 
 ProgressCallback = Callable[[int, Optional[Dict[str, Any]]], None]
 
@@ -121,7 +124,9 @@ class OCRService:
 
         updated_document = self.doc_repo.get_by_id(document_id)
         if not updated_document:
-            raise OCRServiceError(f"Document {document_id} not found after OCR processing")
+            raise OCRServiceError(
+                f"Document {document_id} not found after OCR processing"
+            )
         return updated_document
 
     async def _process_pdf(
@@ -139,9 +144,7 @@ class OCRService:
     ) -> str:
         """Process PDF pages sequentially, optionally resuming persisted results."""
         page_images = split_pdf_to_images(file_path, pages_dir)
-        page_pdfs = split_pdf_to_page_pdfs(
-            file_path, results_dir / "ocr_page_pdfs"
-        )
+        page_pdfs = split_pdf_to_page_pdfs(file_path, results_dir / "ocr_page_pdfs")
         if len(page_images) != len(page_pdfs):
             raise OCRServiceError(
                 "Rendered image count does not match single-page PDF count"
@@ -167,9 +170,7 @@ class OCRService:
         ):
             page_number = idx + 1
             persisted = (
-                self._load_persisted_page_result(
-                    document_id, page_number, results_dir
-                )
+                self._load_persisted_page_result(document_id, page_number, results_dir)
                 if resume_existing
                 else None
             )
@@ -189,8 +190,8 @@ class OCRService:
                         merge_tables=merge_tables,
                         relevel_titles=relevel_titles,
                         layout_shape_mode="rect",
-                        max_pixels=4_200_000,  # ~2048×2048; 200 DPI A4 is ~3.87M, avoid downsampling
-                        max_new_tokens=1024,
+                        max_pixels=settings.ocr_pdf_max_pixels,
+                        max_new_tokens=settings.ocr_pdf_max_new_tokens,
                     )
                 except OCRServiceError as exc:
                     raise OCRServiceError(
@@ -245,7 +246,9 @@ class OCRService:
         )
         self._write_document_markdown(results_dir, document_markdown)
         if progress_callback:
-            progress_callback(98, {"stage": "finalizing_document", "page_count": total_pages})
+            progress_callback(
+                98, {"stage": "finalizing_document", "page_count": total_pages}
+            )
         return document_markdown
 
     async def _process_image(
@@ -279,8 +282,8 @@ class OCRService:
             merge_tables=merge_tables,
             relevel_titles=relevel_titles,
             layout_shape_mode="rect",
-            max_pixels=4_200_000,  # ~2048×2048; avoid downsampling for typical scans
-            max_new_tokens=1024,
+            max_pixels=settings.ocr_image_max_pixels,
+            max_new_tokens=settings.ocr_image_max_new_tokens,
         )
         ocr_seconds = time.monotonic() - ocr_started
         logger.info(
@@ -371,7 +374,9 @@ class OCRService:
         page_results_dir = results_dir / f"page_{page_number:04d}"
         page_results_dir.mkdir(parents=True, exist_ok=True)
 
-        resolved_image_path = self._persist_input_image(page_results_dir, result, image_path)
+        resolved_image_path = self._persist_input_image(
+            page_results_dir, result, image_path
+        )
         # Now that _persist_input_image always returns the high-res fallback,
         # resolved_image_path == image_path, so we use the provided dimensions directly.
         resolved_width = width
@@ -397,15 +402,24 @@ class OCRService:
             page = self.page_repo.create(page_data)
             page_id = cast(int, page.id)
 
-        markdown_content = result.get("markdown", "") if isinstance(result, dict) else ""
+        markdown_content = (
+            result.get("markdown", "") if isinstance(result, dict) else ""
+        )
         markdown_path = page_results_dir / "content.md"
         markdown_path.write_text(markdown_content, encoding="utf-8")
 
-        pruned_result = result.get("prunedResult", {}) if isinstance(result, dict) else {}
+        pruned_result = (
+            result.get("prunedResult", {}) if isinstance(result, dict) else {}
+        )
         pruned_path = page_results_dir / "pruned_result.json"
-        pruned_path.write_text(json.dumps(pruned_result, ensure_ascii=False, indent=2), encoding="utf-8")
+        pruned_path.write_text(
+            json.dumps(pruned_result, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
-        visualization_path = self._persist_output_image(page_results_dir, result.get("outputImages") if isinstance(result, dict) else None)
+        visualization_path = self._persist_output_image(
+            page_results_dir,
+            result.get("outputImages") if isinstance(result, dict) else None,
+        )
 
         page_update = PageUpdate(
             image_path=str(resolved_image_path) if resolved_image_path else None,
@@ -419,7 +433,32 @@ class OCRService:
         if not updated_page:
             raise OCRServiceError(f"Failed to update page {page_id}")
 
-        self._save_blocks(page_id, result)
+        saved_blocks = self._save_blocks(
+            page_id, result, resolved_width, resolved_height
+        )
+        is_pdf = (
+            getattr(self.doc_repo.get_by_id(document_id), "file_type", None)
+            == DocumentType.PDF
+        )
+        quality = {
+            "blocks": [
+                {"block_id": b.id, "warnings": ocr_warnings(b.ocr_text_raw or "")}
+                for b in saved_blocks
+                if ocr_warnings(b.ocr_text_raw or "")
+            ],
+            "recognition_max_pixels": (
+                settings.ocr_pdf_max_pixels if is_pdf else settings.ocr_image_max_pixels
+            ),
+            "recognition_max_tokens": (
+                settings.ocr_pdf_max_new_tokens
+                if is_pdf
+                else settings.ocr_image_max_new_tokens
+            ),
+            "note": "风险提示并非 CER 或识别正确率；需要人工真值评估。",
+        }
+        (page_results_dir / "ocr_quality.json").write_text(
+            json.dumps(quality, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         return updated_page
 
     def _persist_input_image(
@@ -437,7 +476,9 @@ class OCRService:
         """
         return fallback_image_path
 
-    def _persist_output_image(self, page_results_dir: Path, output_images: Any) -> Optional[str]:
+    def _persist_output_image(
+        self, page_results_dir: Path, output_images: Any
+    ) -> Optional[str]:
         """Persist a visualization image when present."""
         if isinstance(output_images, dict):
             vis_data = next((value for value in output_images.values() if value), None)
@@ -471,7 +512,9 @@ class OCRService:
                 return markdown
 
         if page_markdowns:
-            joined_markdown = "\n\n".join(markdown for markdown in page_markdowns if markdown)
+            joined_markdown = "\n\n".join(
+                markdown for markdown in page_markdowns if markdown
+            )
             if joined_markdown.strip():
                 return joined_markdown
 
@@ -485,8 +528,24 @@ class OCRService:
         document_markdown_path = results_dir / "document.md"
         document_markdown_path.write_text(markdown or "", encoding="utf-8")
 
-    def _save_blocks(self, page_id: int, result: Dict[str, Any]) -> List[Block]:
-        """Parse OCR blocks and persist them in one database transaction."""
+    def _save_blocks(
+        self,
+        page_id: int,
+        result: Dict[str, Any],
+        page_width: Optional[int] = None,
+        page_height: Optional[int] = None,
+    ) -> List[Block]:
+        """Parse OCR blocks and persist them in one database transaction.
+
+        Args:
+            page_id: Page owning the blocks.
+            result: Raw PaddleOCR page result.
+            page_width: Width of the stored page image, used as the bbox canvas.
+            page_height: Height of the stored page image, used as the bbox canvas.
+
+        Returns:
+            Persisted blocks.
+        """
         block_items = self._extract_block_items(result)
 
         if not block_items and isinstance(result, dict):
@@ -511,8 +570,20 @@ class OCRService:
                 block_schema := self._build_block_create(
                     page_id, block_index, block_data
                 )
-            ) is not None
+            )
+            is not None
         ]
+        scale_x, scale_y = self._bbox_scale(result, page_width, page_height)
+        if scale_x != 1.0 or scale_y != 1.0:
+            logger.info(
+                "Rescaling bboxes for page %s by (%.4f, %.4f) to match stored image",
+                page_id,
+                scale_x,
+                scale_y,
+            )
+            for schema in block_schemas:
+                x1, y1, x2, y2 = schema.bbox[:4]
+                schema.bbox = [x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y]
         blocks = self.block_repo.create_many(block_schemas) if block_schemas else []
         logger.info("Saved %s blocks for page %s", len(blocks), page_id)
         return blocks
@@ -558,15 +629,21 @@ class OCRService:
 
         return extracted
 
-    def _build_markdown_fallback_blocks(self, result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _build_markdown_fallback_blocks(
+        self, result: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
         """Build coarse fallback blocks from page markdown when structured blocks are missing."""
         markdown = result.get("markdown")
         if not isinstance(markdown, str) or not markdown.strip():
             return []
 
-        paragraphs = [segment.strip() for segment in markdown.split("\n\n") if segment.strip()]
+        paragraphs = [
+            segment.strip() for segment in markdown.split("\n\n") if segment.strip()
+        ]
         if not paragraphs:
-            paragraphs = [line.strip() for line in markdown.splitlines() if line.strip()]
+            paragraphs = [
+                line.strip() for line in markdown.splitlines() if line.strip()
+            ]
         if not paragraphs:
             return []
 
@@ -659,13 +736,52 @@ class OCRService:
         block_create = BlockCreate(
             page_id=page_id,
             block_index=block_index,
-            block_label=block_data.get("label") or block_data.get("type") or block_data.get("block_label") or "text",
+            block_label=block_data.get("label")
+            or block_data.get("type")
+            or block_data.get("block_label")
+            or "text",
             bbox=normalized_bbox,
             confidence=block_data.get("confidence", block_data.get("score")),
             ocr_text_raw=text,
         )
 
         return block_create
+
+    @staticmethod
+    def _bbox_scale(
+        result: Dict[str, Any],
+        page_width: Optional[int],
+        page_height: Optional[int],
+    ) -> tuple[float, float]:
+        """Compute the factor mapping PaddleOCR's canvas onto the stored page image.
+
+        PaddleOCR renders PDF input at its own resolution, so its bbox canvas
+        (prunedResult.width/height) can differ from the locally rendered page image.
+
+        Args:
+            result: Raw PaddleOCR page result.
+            page_width: Width of the stored page image.
+            page_height: Height of the stored page image.
+
+        Returns:
+            (scale_x, scale_y); (1.0, 1.0) when sizes are unknown or already match.
+        """
+        pruned = result.get("prunedResult") if isinstance(result, dict) else None
+        if not isinstance(pruned, dict) or not page_width or not page_height:
+            return 1.0, 1.0
+        src_width = pruned.get("width")
+        src_height = pruned.get("height")
+        if not isinstance(src_width, (int, float)) or not isinstance(
+            src_height, (int, float)
+        ):
+            return 1.0, 1.0
+        if src_width <= 0 or src_height <= 0:
+            return 1.0, 1.0
+        scale_x = page_width / src_width
+        scale_y = page_height / src_height
+        if abs(scale_x - 1.0) < 0.01 and abs(scale_y - 1.0) < 0.01:
+            return 1.0, 1.0
+        return scale_x, scale_y
 
     def _normalize_bbox(self, bbox: List[Any]) -> List[float]:
         """Normalize bbox arrays to [x1, y1, x2, y2]."""

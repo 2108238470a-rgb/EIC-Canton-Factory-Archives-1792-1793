@@ -1,4 +1,5 @@
 """Application configuration."""
+
 import json
 from pathlib import Path
 from typing import List
@@ -71,16 +72,34 @@ class Settings(BaseSettings):
     paddle_ocr_max_pixels: int = 2048 * 2048
     paddle_ocr_max_new_tokens: int = 4096
 
+    # Historical PDF recognition budget; independent of stored preview image size.
+    ocr_pdf_max_pixels: int = 8_388_608
+    ocr_pdf_max_new_tokens: int = 8192
+    ocr_image_max_pixels: int = 8_388_608
+    ocr_image_max_new_tokens: int = 8192
+
     # GPT Service
     gpt_api_key: str = ""
     gpt_base_url: str = "https://api.siliconflow.cn/v1"
     gpt_model: str = "deepseek-ai/DeepSeek-V3"
     gpt_timeout: int = 300
     gpt_max_retries: int = 3  # Increased from 2 to 3 for better TLS fault tolerance
-    gpt_retry_backoff_seconds: float = 2.0  # Increased from 1.0 to 2.0 for more stable retries
+    gpt_retry_backoff_seconds: float = (
+        2.0  # Increased from 1.0 to 2.0 for more stable retries
+    )
     gpt_page_max_tokens: int = 8192
     gpt_page_enable_thinking: bool = False
     gpt_structured_output: bool = True
+    correction_profiles_path: str = "config/correction_profiles.local.json"
+
+    # RAG
+    embedding_model: str = "BAAI/bge-m3"
+    embedding_batch_size: int = 32
+    rag_top_k: int = 8
+    rag_answer_timeout_seconds: float = 150.0
+
+    # Bounded research analysis calls; independent of OCR and RAG budgets.
+    insights_request_timeout_seconds: float = 90.0
 
     # Knowledge-graph auto research (triggered by a successful Word import)
     #: Master switch. When off, no import/attach event may start an LLM run.

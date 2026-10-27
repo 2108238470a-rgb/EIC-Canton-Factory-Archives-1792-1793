@@ -19,6 +19,7 @@ from app.services.block_context_service import (
 )
 from app.services.rag.answer_integrity import scrub_secrets
 from app.tasks import polish_block_task, polish_page_task, polish_document_task
+from app.tasks.gpt_tasks_batch import polish_document_batch_task
 from app.core import logger
 
 router = APIRouter(prefix="/blocks", tags=["blocks"])

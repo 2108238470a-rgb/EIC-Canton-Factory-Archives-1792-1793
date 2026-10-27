@@ -91,6 +91,7 @@ htmlcov/
 # ============================================================
 node_modules/
 .next/
+.next-*/
 out/
 build/
 .turbo/
@@ -145,3 +146,18 @@ desktop.ini
 # ============================================================
 *.doc~
 ~$*
+
+backups/
+
+# Application source libraries are not Python build output.
+!frontend/src/lib/
+!frontend/src/lib/*.ts
+
+# Document-specific correction terms and annotation images stay local.
+backend/config/correction_profiles.local.json
+ocr_training/packages/
+ocr_training/exports/
+
+# Public deployment runtime secrets.
+deploy/secrets/
+deploy/.env

@@ -1,0 +1,4 @@
+split_group,split
+volume-A,train
+volume-B,validation
+volume-C,test

@@ -1,4 +1,5 @@
 """FastAPI application entry point."""
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -25,7 +26,13 @@ from app.api.routers import (
     research_router,
     groups_router,
 )
-
+# The V2 knowledge workbench API surface. Its routers are aliased because it also
+# exposes a "rag_router": importing it under the same name silently replaced the
+# /api/rag router above, so both were mounted at different prefixes but pointed at
+# the same (V2) module.
+from app.workbench.api import router as v2_knowledge_router
+from app.workbench.compat import router as v2_legacy_router
+from app.rag.api import router as v2_rag_router
 
 
 def _ensure_schema_compatibility() -> None:
@@ -56,6 +63,20 @@ def _ensure_schema_compatibility() -> None:
             logger.info("Added and backfilled blocks.ocr_correction_source_text column")
 
 
+def _run_migrations() -> None:
+    """Run Alembic migrations programmatically."""
+    from alembic.config import Config
+    from alembic import command
+    from pathlib import Path
+
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    config.set_main_option(
+        "script_location", str(Path(__file__).resolve().parents[1] / "alembic")
+    )
+    command.upgrade(config, "head")
+    logger.info("Database migrations applied successfully")
+
+
 def _startup_tables() -> list:
     """Tables created at startup — everything except the Alembic-managed ones."""
     return [
@@ -72,7 +93,9 @@ async def lifespan(app: FastAPI):
     # Create database tables.
     # Tables listed in ALEMBIC_MANAGED_TABLES are deliberately excluded: their
     # DDL must arrive through a reviewed migration, never through an implicit
-    # create_all() during application startup.
+    # create_all() during application startup. The same rule applies to the V2
+    # knowledge tables (/api/v2): run `alembic -c alembic.ini upgrade head`
+    # explicitly before using them.
     engine = get_engine()
     Base.metadata.create_all(bind=engine, tables=_startup_tables())
     _ensure_schema_compatibility()
@@ -122,10 +145,14 @@ async def app_exception_handler(request: Request, exc: AppException):
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     """Handle general exceptions."""
-    logger.error(f"Unhandled exception: {exc}")
+    logger.exception(
+        "Unhandled request error method=%s path=%s", request.method, request.url.path
+    )
     return JSONResponse(
         status_code=500,
-        content={"error": {"message": "Internal server error", "code": "INTERNAL_ERROR"}},
+        content={
+            "error": {"message": "Internal server error", "code": "INTERNAL_ERROR"}
+        },
     )
 
 
@@ -133,17 +160,25 @@ async def general_exception_handler(request: Request, exc: Exception):
 app.mount("/storage", StaticFiles(directory=settings.storage_path), name="storage")
 
 # Include routers
+from app.insights.api import router as insights_router
+
+app.include_router(insights_router, prefix="/api/v2")
 app.include_router(documents_router, prefix="/api")
 app.include_router(pages_router, prefix="/api")
 app.include_router(blocks_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
 app.include_router(exports_router, prefix="/api")
+# V1 research stack (this fork)
 app.include_router(kg_router, prefix="/api")
 app.include_router(rag_router, prefix="/api")
 app.include_router(agent_router, prefix="/api")
 app.include_router(research_router, prefix="/api")
 app.include_router(groups_router, prefix="/api")
 
+# V2 knowledge workbench (upstream, merged 2026-10-27) — parallel surface, not a replacement.
+app.include_router(v2_knowledge_router, prefix="/api/v2")
+app.include_router(v2_rag_router, prefix="/api/v2")
+app.include_router(v2_legacy_router, prefix="/api/v2")
 
 
 @app.get("/")

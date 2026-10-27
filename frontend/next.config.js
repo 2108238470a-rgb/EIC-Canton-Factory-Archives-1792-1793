@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  distDir: process.env.NEXT_DIST_DIR || ".next",
+  // Grounded answers may take longer than Next's default 30-second proxy budget.
+  // Backend generation is bounded at 150 seconds, leaving time for retrieval.
+  experimental: { proxyTimeout: 210000 },
   images: {
     remotePatterns: [
       {
@@ -14,11 +18,11 @@ const nextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: "http://localhost:8000/api/:path*",
+        destination: `${process.env.BACKEND_INTERNAL_URL || "http://localhost:8000"}/api/:path*`,
       },
       {
         source: "/storage/:path*",
-        destination: "http://localhost:8000/storage/:path*",
+        destination: `${process.env.BACKEND_INTERNAL_URL || "http://localhost:8000"}/storage/:path*`,
       },
     ];
   },

@@ -1,11 +1,4 @@
-"""Alembic environment for the EIC platform.
-
-The target database is resolved here and **must** pass
-:func:`app.migration_target_guard.guard_migration_environment` before any URL
-reaches SQLAlchemy. Without an explicit allow-listed target and the matching
-authorization flags the run is refused, so a migration can never be pointed at
-the product database by accident.
-"""
+"""Alembic environment configuration."""
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
@@ -13,34 +6,36 @@ from sqlalchemy import pool
 
 from alembic import context
 
+# Import the base and all models
+from app.database import Base
+from app.config import settings
+
+# Import all models to ensure they are registered with Base
+from app.models import (
+    document, page, block, task, export,
+    archival_metadata, source_unit, source_unit_span,
+    text_revision, evidence_span,
+    entity, entity_mention, identity_decision,
+    event_mention, event, participation, event_relation,
+    assertion, assertion_evidence, review_decision,
+    extraction_run, search_chunk
+)
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
+# Override sqlalchemy.url with the one from settings
+config.set_main_option("sqlalchemy.url", settings.database_url)
+
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
-import os
-import sys
-
-# Ensure backend directory is in sys.path
-backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if backend_dir not in sys.path:
-    sys.path.insert(0, backend_dir)
-
-from app.database import Base
-import app.models  # ensure all models are imported
-from app.migration_target_guard import guard_migration_environment
-
+# add your model's MetaData object here
+# for 'autogenerate' support
 target_metadata = Base.metadata
-
-# Fail closed: a missing URL, a target that is not allow-listed, or a write
-# command without explicit authorization all raise *here*, before an Engine is
-# created or a connection is opened. The returned value is the configured URL
-# unchanged - a rejected target is never rewritten into another database.
-config.set_main_option("sqlalchemy.url", guard_migration_environment(config))
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

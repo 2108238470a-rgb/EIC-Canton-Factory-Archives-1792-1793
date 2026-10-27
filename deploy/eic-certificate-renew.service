@@ -1,0 +1,10 @@
+[Unit]
+Description=Renew EIC research HTTPS certificate
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker run --rm -v /opt/eic-research/tls:/etc/letsencrypt -v /var/www/eic-acme:/var/www/eic-acme certbot/certbot renew --webroot -w /var/www/eic-acme --quiet
+ExecStartPost=/www/server/nginx/sbin/nginx -t
+ExecStartPost=/www/server/nginx/sbin/nginx -s reload

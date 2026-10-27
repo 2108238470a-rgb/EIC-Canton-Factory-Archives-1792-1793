@@ -1,4 +1,5 @@
 """GPT processing Celery tasks."""
+
 import asyncio
 from difflib import SequenceMatcher
 import re
@@ -7,8 +8,15 @@ from typing import Any, Dict, List, Optional, Sequence
 from app.tasks.celery_app import celery_app
 from app.database import SessionLocal
 from app.services.gpt_service import gpt_service
-from app.repositories import TaskRepository, BlockRepository, PageRepository, DocumentRepository
-from app.models import TaskStatus, Block, Page
+from app.services.correction_quality import assess_correction
+from app.services.correction_profiles import load_document_profile
+from app.repositories import (
+    TaskRepository,
+    BlockRepository,
+    PageRepository,
+    DocumentRepository,
+)
+from app.models import TaskStatus, Block, Page, ReviewStatus
 from app.schemas import (
     BlockUpdate,
     PageBoundaryEvidenceSchema,
@@ -39,13 +47,33 @@ CONTINUATION_START_PATTERN = re.compile(r"^[a-z,;:)\]]")
 HEADER_TEXT_PATTERN = re.compile(r"^(?:page\s+)?(?:[ivxlcdm]+|\d+)$", re.IGNORECASE)
 CAPITALIZED_TOKEN_PATTERN = re.compile(r"\b[A-Z][A-Za-z'’.-]*\b")
 NUMBER_PATTERN = re.compile(r"\b\d+(?:[.,:/-]\d+)*\b")
-NEGATION_PATTERN = re.compile(r"\b(?:no|not|never|neither|nor|without)\b", re.IGNORECASE)
+NEGATION_PATTERN = re.compile(
+    r"\b(?:no|not|never|neither|nor|without)\b", re.IGNORECASE
+)
 PROTECTED_HISTORICAL_FORMS = (
-    "publick", "shew", "tho'", "encreasing", "Esqr.", "Wm.", "Hon'ble", "Honble"
+    "publick",
+    "shew",
+    "tho'",
+    "encreasing",
+    "Esqr.",
+    "Wm.",
+    "Hon'ble",
+    "Honble",
 )
 FACT_BEARING_TERMS = {
-    "secretary", "committee", "office", "officer", "governor", "captain", "colonel",
-    "major", "lieutenant", "general", "president", "chairman", "commissioner",
+    "secretary",
+    "committee",
+    "office",
+    "officer",
+    "governor",
+    "captain",
+    "colonel",
+    "major",
+    "lieutenant",
+    "general",
+    "president",
+    "chairman",
+    "commissioner",
 }
 
 
@@ -121,7 +149,13 @@ def _assess_boundary(
     left_role = _region_role(getattr(left_block, "block_label", None))
     right_role = _region_role(getattr(right_block, "block_label", None))
     non_body_roles = {
-        "header", "footer", "title", "date", "signature", "marginalia", "page_number"
+        "header",
+        "footer",
+        "title",
+        "date",
+        "signature",
+        "marginalia",
+        "page_number",
     }
     if left_role in non_body_roles or right_role in non_body_roles:
         return PageBoundaryEvidenceSchema(
@@ -139,7 +173,11 @@ def _assess_boundary(
             reasons=["left block ends with terminal punctuation"],
         )
     if CONTINUATION_START_PATTERN.search(right_text):
-        reason = "hyphenated left edge" if left_text.endswith("-") else "lowercase right edge"
+        reason = (
+            "hyphenated left edge"
+            if left_text.endswith("-")
+            else "lowercase right edge"
+        )
         return PageBoundaryEvidenceSchema(
             assessment="possible_continuation",
             reasons=[reason],
@@ -204,7 +242,11 @@ def _bounded_context(
     """Build a bounded ordered context without concatenating block text."""
     if not page:
         return []
-    selected = blocks[-ADJACENT_CONTEXT_BLOCKS:] if from_end else blocks[:ADJACENT_CONTEXT_BLOCKS]
+    selected = (
+        blocks[-ADJACENT_CONTEXT_BLOCKS:]
+        if from_end
+        else blocks[:ADJACENT_CONTEXT_BLOCKS]
+    )
     return [
         context
         for block in selected
@@ -260,6 +302,7 @@ def _build_page_request(
         and (context := _context_block(page, block)) is not None
     ][:CURRENT_PAGE_REFERENCE_LIMIT]
     return PageCorrectionRequestSchema(
+        document_profile=load_document_profile(page.document_id),
         page_number=page.page_number,
         previous_page_context=_bounded_context(
             previous_page, previous_blocks, from_end=True
@@ -283,9 +326,7 @@ def _build_page_request(
         document_reference_blocks=_document_references(
             page, document_blocks, eligible_blocks
         ),
-        next_page_context=_bounded_context(
-            next_page, next_blocks, from_end=False
-        ),
+        next_page_context=_bounded_context(next_page, next_blocks, from_end=False),
         next_boundary=_assess_boundary(
             all_blocks[-1] if all_blocks else None,
             next_blocks[0] if next_blocks else None,
@@ -300,38 +341,14 @@ def _token_set(pattern: re.Pattern[str], text: str) -> set[str]:
 
 def _has_source_neighbor(token: str, source_tokens: set[str]) -> bool:
     """Check whether a candidate token is a plausible correction of source text."""
-    return any(SequenceMatcher(None, token, source).ratio() >= 0.72 for source in source_tokens)
+    return any(
+        SequenceMatcher(None, token, source).ratio() >= 0.72 for source in source_tokens
+    )
 
 
 def _select_correction_candidate(raw: str, candidate: str) -> str:
     """Choose the LLM candidate only when it preserves protected evidence."""
-    normalized_candidate = candidate.strip()
-    if not normalized_candidate or normalized_candidate == raw:
-        return raw if not normalized_candidate else normalized_candidate
-    if len(normalized_candidate) > max(len(raw) + 40, int(len(raw) * 1.35)):
-        return raw
-    for form in PROTECTED_HISTORICAL_FORMS:
-        if form in raw and form not in normalized_candidate:
-            return raw
-    if _token_set(NUMBER_PATTERN, raw) != _token_set(NUMBER_PATTERN, normalized_candidate):
-        return raw
-    if _token_set(NEGATION_PATTERN, raw) != _token_set(NEGATION_PATTERN, normalized_candidate):
-        return raw
-
-    raw_words = set(re.findall(r"[a-z]+", raw.lower()))
-    candidate_words = set(re.findall(r"[a-z]+", normalized_candidate.lower()))
-    if (raw_words & FACT_BEARING_TERMS) - candidate_words:
-        return raw
-    for term in (candidate_words & FACT_BEARING_TERMS) - raw_words:
-        if not _has_source_neighbor(term, raw_words):
-            return raw
-
-    raw_capitals = _token_set(CAPITALIZED_TOKEN_PATTERN, raw)
-    candidate_capitals = _token_set(CAPITALIZED_TOKEN_PATTERN, normalized_candidate)
-    for token in candidate_capitals - raw_capitals:
-        if len(token) > 2 and not _has_source_neighbor(token, raw_capitals):
-            return raw
-    return normalized_candidate
+    return assess_correction(raw, candidate)["text"]
 
 
 def _usage_dict(usage: TokenUsageSchema) -> Dict[str, int]:
@@ -374,9 +391,7 @@ def _process_correction_page(
             "token_usage": _usage_dict(TokenUsageSchema()),
         }
 
-    previous_blocks = (
-        block_repo.get_by_page(previous_page.id) if previous_page else []
-    )
+    previous_blocks = block_repo.get_by_page(previous_page.id) if previous_page else []
     next_blocks = block_repo.get_by_page(next_page.id) if next_page else []
     document_blocks = block_repo.get_by_document(page.document_id)
     request = _build_page_request(
@@ -391,16 +406,24 @@ def _process_correction_page(
     )
     call_result = run_async(gpt_service.correct_ocr_page(request))
     source_by_id = {block.id: block.ocr_text_raw for block in eligible_blocks}
-    corrections = {
-        item.block_id: _select_correction_candidate(
+    reports = getattr(call_result, "quality_reports", {}) or {
+        item.block_id: assess_correction(
             source_by_id[item.block_id], item.ocr_text_corrected
         )
         for item in call_result.blocks
     }
-    source_snapshots = {
-        block.id: block.ocr_text_raw for block in eligible_blocks
+    corrections = {
+        item.block_id: item.ocr_text_corrected
+        for item in call_result.blocks
+        if reports[item.block_id]["accepted"]
     }
-    block_repo.update_page_corrections(page.id, corrections, source_snapshots)
+    source_snapshots = {
+        block.id: block.ocr_text_raw
+        for block in eligible_blocks
+        if block.id in corrections
+    }
+    if corrections:
+        block_repo.update_page_corrections(page.id, corrections, source_snapshots)
     return {
         "page_id": page.id,
         "page_number": page.page_number,
@@ -410,6 +433,8 @@ def _process_correction_page(
         "page_skipped": False,
         "llm_calls": call_result.token_usage.calls,
         "block_ids": list(corrections),
+        "quality_reports": reports,
+        "held_for_review": sum(not r["accepted"] for r in reports.values()),
         "token_usage": _usage_dict(call_result.token_usage),
     }
 
@@ -439,16 +464,23 @@ def polish_block_task(
     doc_repo = DocumentRepository(db)
 
     try:
-        task_repo.update_status(task_id, TaskStatus.RUNNING, progress=0, result={"stage": "preparing_block"})
+        task_repo.update_status(
+            task_id, TaskStatus.RUNNING, progress=0, result={"stage": "preparing_block"}
+        )
 
         block = block_repo.get_by_id(block_id)
         if not block or not block.ocr_text_raw:
             raise ValueError(f"Block {block_id} not found or has no OCR text")
 
+        if block.review_status == ReviewStatus.APPROVED:
+            raise ValueError("人工已复核文本不执行自动润色；如需修改，请使用人工校订")
+        source_snapshot = block.ocr_text_raw
         page = page_repo.get_by_id(block.page_id)
         document = doc_repo.get_by_id(page.document_id) if page else None
         page_blocks = block_repo.get_by_page(block.page_id) if page else []
-        current_index = next((idx for idx, item in enumerate(page_blocks) if item.id == block_id), 0)
+        current_index = next(
+            (idx for idx, item in enumerate(page_blocks) if item.id == block_id), 0
+        )
         previous_page = (
             page_repo.get_by_document_and_number(page.document_id, page.page_number - 1)
             if page and page.page_number > 1
@@ -456,9 +488,12 @@ def polish_block_task(
         )
         next_page = (
             page_repo.get_by_document_and_number(page.document_id, page.page_number + 1)
-            if page else None
+            if page
+            else None
         )
-        previous_blocks = block_repo.get_by_page(previous_page.id) if previous_page else []
+        previous_blocks = (
+            block_repo.get_by_page(previous_page.id) if previous_page else []
+        )
         next_blocks = block_repo.get_by_page(next_page.id) if next_page else []
         context = _build_block_context(
             page_blocks,
@@ -481,7 +516,14 @@ def polish_block_task(
             },
         )
         processing_result = run_async(
-            gpt_service.process_block_with_usage(block.ocr_text_raw, modes, context)
+            gpt_service.process_block_with_usage(
+                block.ocr_text_raw,
+                modes,
+                context,
+                document_profile=load_document_profile(
+                    page.document_id if page else None
+                ),
+            )
         )
         results = processing_result.results
         if "ocr_text_corrected" in results:
@@ -490,8 +532,11 @@ def polish_block_task(
                 results["ocr_text_corrected"],
             )
 
+        quality_report = getattr(processing_result, "quality_report", {})
+        if quality_report and not quality_report["accepted"]:
+            results.pop("ocr_text_corrected", None)
         update_data = BlockUpdate(**results)
-        block_repo.update(block_id, update_data)
+        block_repo.update_generated(block_id, update_data, source_snapshot)
 
         result = {
             "stage": "completed",
@@ -500,15 +545,23 @@ def polish_block_task(
             "block_index": block.block_index + 1,
             "token_usage": _usage_dict(processing_result.token_usage),
             **results,
+            "quality_report": quality_report,
         }
-        task_repo.update_status(task_id, TaskStatus.COMPLETED, progress=100, result=result)
+        task_repo.update_status(
+            task_id, TaskStatus.COMPLETED, progress=100, result=result
+        )
 
         logger.info(f"Polish task completed for block {block_id}")
         return {"block_id": block_id, **result}
 
     except Exception as e:
         logger.error(f"Polish task failed for block {block_id}: {e}")
-        task_repo.update_status(task_id, TaskStatus.FAILED, error_message=str(e), result={"stage": "failed", "scope": "block"})
+        task_repo.update_status(
+            task_id,
+            TaskStatus.FAILED,
+            error_message=str(e),
+            result={"stage": "failed", "scope": "block"},
+        )
         raise
 
     finally:
@@ -540,7 +593,9 @@ def polish_page_task(
 
     try:
         task_repo.update_status(
-            task_id, TaskStatus.RUNNING, progress=0,
+            task_id,
+            TaskStatus.RUNNING,
+            progress=0,
             result={"stage": "preparing_page", "scope": "page"},
         )
         if modes != ["ocr_correction"]:
@@ -549,9 +604,9 @@ def polish_page_task(
         if not page:
             raise ValueError(f"Page {page_id} not found")
         previous_page = (
-            page_repo.get_by_document_and_number(
-                page.document_id, page.page_number - 1
-            ) if page.page_number > 1 else None
+            page_repo.get_by_document_and_number(page.document_id, page.page_number - 1)
+            if page.page_number > 1
+            else None
         )
         next_page = page_repo.get_by_document_and_number(
             page.document_id, page.page_number + 1
@@ -564,7 +619,9 @@ def polish_page_task(
             "scope": "page",
             **page_result,
         }
-        task_repo.update_status(task_id, TaskStatus.COMPLETED, progress=100, result=result)
+        task_repo.update_status(
+            task_id, TaskStatus.COMPLETED, progress=100, result=result
+        )
 
         logger.info(
             f"Polish task completed for page {page_id}: "
@@ -574,7 +631,12 @@ def polish_page_task(
 
     except Exception as e:
         logger.error(f"Polish task failed for page {page_id}: {e}")
-        task_repo.update_status(task_id, TaskStatus.FAILED, error_message=str(e), result={"stage": "failed", "scope": "page"})
+        task_repo.update_status(
+            task_id,
+            TaskStatus.FAILED,
+            error_message=str(e),
+            result={"stage": "failed", "scope": "page"},
+        )
         raise
 
     finally:
@@ -614,7 +676,9 @@ def polish_document_task(
 
     try:
         task_repo.update_status(
-            task_id, TaskStatus.RUNNING, progress=0,
+            task_id,
+            TaskStatus.RUNNING,
+            progress=0,
             result={"stage": "preparing_document", "scope": "document"},
         )
         if modes != ["ocr_correction"]:
@@ -649,29 +713,27 @@ def polish_document_task(
                     page_exc,
                 )
                 failed_pages.append((page_position, page))
-                page_results.append({
-                    "page_id": page.id,
-                    "page_number": page.page_number,
-                    "processed": 0,
-                    "skipped": 0,
-                    "total": 0,
-                    "page_skipped": True,
-                    "page_failed": True,
-                    "error": str(page_exc),
-                    "llm_calls": 0,
-                    "token_usage": _usage_dict(TokenUsageSchema()),
-                })
+                page_results.append(
+                    {
+                        "page_id": page.id,
+                        "page_number": page.page_number,
+                        "processed": 0,
+                        "skipped": 0,
+                        "total": 0,
+                        "page_skipped": True,
+                        "page_failed": True,
+                        "error": str(page_exc),
+                        "llm_calls": 0,
+                        "token_usage": _usage_dict(TokenUsageSchema()),
+                    }
+                )
 
-            processed_pages = sum(
-                not item["page_skipped"] for item in page_results
-            )
+            processed_pages = sum(not item["page_skipped"] for item in page_results)
             skipped_pages = sum(
                 item.get("page_skipped", False) and not item.get("page_failed", False)
                 for item in page_results
             )
-            failed_count = sum(
-                item.get("page_failed", False) for item in page_results
-            )
+            failed_count = sum(item.get("page_failed", False) for item in page_results)
             task_repo.update_status(
                 task_id,
                 TaskStatus.RUNNING,
@@ -703,7 +765,9 @@ def polish_document_task(
             for retry_idx, (page_position, page) in enumerate(failed_pages, start=1):
                 current_page_number = page.page_number
                 previous_page = pages[page_position - 2] if page_position > 1 else None
-                next_page = pages[page_position] if page_position < total_pages else None
+                next_page = (
+                    pages[page_position] if page_position < total_pages else None
+                )
 
                 try:
                     page_result = _process_correction_page(
@@ -753,7 +817,9 @@ def polish_document_task(
             item for item in page_results if item.get("page_failed", False)
         ]
         final_status = TaskStatus.FAILED if final_failed_pages else TaskStatus.COMPLETED
-        final_stage = "completed" if not final_failed_pages else "completed_with_failures"
+        final_stage = (
+            "completed" if not final_failed_pages else "completed_with_failures"
+        )
 
         result = {
             "stage": final_stage,
@@ -769,9 +835,7 @@ def polish_document_task(
                 for item in page_results
             ),
             "failed_pages": len(final_failed_pages),
-            "failed_page_numbers": [
-                item["page_number"] for item in final_failed_pages
-            ],
+            "failed_page_numbers": [item["page_number"] for item in final_failed_pages],
             "processed": total_processed,
             "skipped": total_skipped,
             "llm_calls": usage.calls,

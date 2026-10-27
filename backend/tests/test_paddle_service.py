@@ -1,4 +1,5 @@
 """Focused tests for PaddleOCR response and retry handling."""
+
 import asyncio
 import importlib.util
 import tempfile
@@ -10,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 
 from app.core import OCRServiceError
+from app.config import settings
 from app.services.ocr_service import OCRService
 from app.utils.pdf_utils import split_pdf_to_page_pdfs
 
@@ -29,9 +31,7 @@ class PaddleOCRServiceTests(unittest.TestCase):
 
     def test_build_restructure_url(self) -> None:
         self.assertEqual(
-            self.service._build_restructure_url(
-                "http://127.0.0.1:8888/layout-parsing"
-            ),
+            self.service._build_restructure_url("http://127.0.0.1:8888/layout-parsing"),
             "http://127.0.0.1:8888/restructure-pages",
         )
 
@@ -51,9 +51,7 @@ class PaddleOCRServiceTests(unittest.TestCase):
 
     def test_rejects_empty_results(self) -> None:
         with self.assertRaises(OCRServiceError):
-            self.service._normalize_result(
-                {"result": {"layoutParsingResults": []}}
-            )
+            self.service._normalize_result({"result": {"layoutParsingResults": []}})
 
     def test_sanitize_response_text(self) -> None:
         sanitized = self.service._sanitize_response_text("a\n b " + "x" * 20, limit=8)
@@ -84,9 +82,7 @@ class PaddleOCRServiceTests(unittest.TestCase):
         self.service.max_retries = 2
 
         with self.assertRaises(httpx.HTTPStatusError):
-            asyncio.run(
-                self.service._post_with_retry(client, self.service.api_url, {})
-            )
+            asyncio.run(self.service._post_with_retry(client, self.service.api_url, {}))
 
         self.assertEqual(client.post.await_count, 1)
 
@@ -100,9 +96,7 @@ class PaddleOCRServiceTests(unittest.TestCase):
         self.service.max_retries = 2
 
         with self.assertRaises(httpx.ReadError):
-            asyncio.run(
-                self.service._post_with_retry(client, self.service.api_url, {})
-            )
+            asyncio.run(self.service._post_with_retry(client, self.service.api_url, {}))
 
         self.assertEqual(client.post.await_count, 1)
 
@@ -136,9 +130,7 @@ class PaddleOCRServiceTests(unittest.TestCase):
                 "AsyncClient",
                 return_value=client_context,
             ):
-                asyncio.run(
-                    self.service.process_pdf(pdf_path, restructure_pages=False)
-                )
+                asyncio.run(self.service.process_pdf(pdf_path, restructure_pages=False))
                 pdf_payload = client.post.await_args.kwargs["json"]
                 client.post.reset_mock()
                 asyncio.run(
@@ -197,13 +189,9 @@ class PaddleOCRServiceTests(unittest.TestCase):
                 "AsyncClient",
                 return_value=client_context,
             ):
-                with self.assertRaisesRegex(
-                    OCRServiceError, "upload timed out"
-                ):
+                with self.assertRaisesRegex(OCRServiceError, "upload timed out"):
                     asyncio.run(
-                        self.service.process_image(
-                            image_path, restructure_pages=False
-                        )
+                        self.service.process_image(image_path, restructure_pages=False)
                     )
 
     def test_restructure_transport_failure_is_nonfatal(self) -> None:
@@ -212,9 +200,7 @@ class PaddleOCRServiceTests(unittest.TestCase):
         with patch.object(
             self.service,
             "_restructure_pages",
-            new=AsyncMock(
-                side_effect=httpx.ReadTimeout("slow", request=request)
-            ),
+            new=AsyncMock(side_effect=httpx.ReadTimeout("slow", request=request)),
         ):
             result = asyncio.run(self.service.restructure_pages([]))
 
@@ -253,23 +239,26 @@ class OCRServicePageFlowTests(unittest.TestCase):
             )
             existing_page = SimpleNamespace(id=1, markdown_content="Page one")
             self.service.page_repo.get_by_document_and_number.side_effect = (
-                lambda document_id, page_number: existing_page
-                if page_number == 1 else None
+                lambda document_id, page_number: (
+                    existing_page if page_number == 1 else None
+                )
             )
             page_one_pdf = root / "page_0001.pdf"
             page_two_pdf = root / "page_0002.pdf"
             page_one_pdf.write_bytes(b"pdf one")
             page_two_pdf.write_bytes(b"pdf two")
-            persisted_page_two = SimpleNamespace(
-                id=2, markdown_content="Page two"
+            persisted_page_two = SimpleNamespace(id=2, markdown_content="Page two")
+            process_pdf = AsyncMock(
+                return_value={
+                    "layoutParsingResults": [
+                        {
+                            "markdown": "Page two",
+                            "markdownImages": None,
+                            "prunedResult": {"parsing_res_list": []},
+                        }
+                    ]
+                }
             )
-            process_pdf = AsyncMock(return_value={
-                "layoutParsingResults": [{
-                    "markdown": "Page two",
-                    "markdownImages": None,
-                    "prunedResult": {"parsing_res_list": []},
-                }]
-            })
             progress_events = []
 
             with patch(
@@ -289,26 +278,33 @@ class OCRServicePageFlowTests(unittest.TestCase):
                 "_persist_page_result",
                 new=AsyncMock(return_value=persisted_page_two),
             ):
-                markdown = asyncio.run(self.service._process_pdf(
-                    document_id=48,
-                    file_path=root / "source.pdf",
-                    pages_dir=pages_dir,
-                    results_dir=results_dir,
-                    visualize=False,
-                    restructure_pages=False,
-                    merge_tables=True,
-                    relevel_titles=True,
-                    progress_callback=lambda progress, result: progress_events.append(
-                        (progress, result)
-                    ),
-                    resume_existing=True,
-                ))
+                markdown = asyncio.run(
+                    self.service._process_pdf(
+                        document_id=48,
+                        file_path=root / "source.pdf",
+                        pages_dir=pages_dir,
+                        results_dir=results_dir,
+                        visualize=False,
+                        restructure_pages=False,
+                        merge_tables=True,
+                        relevel_titles=True,
+                        progress_callback=lambda progress, result: progress_events.append(
+                            (progress, result)
+                        ),
+                        resume_existing=True,
+                    )
+                )
 
         process_pdf.assert_awaited_once()
         self.assertEqual(process_pdf.await_args.args[0], page_two_pdf)
         self.assertEqual(process_pdf.await_args.kwargs["layout_shape_mode"], "rect")
-        self.assertEqual(process_pdf.await_args.kwargs["max_pixels"], 4_200_000)
-        self.assertEqual(process_pdf.await_args.kwargs["max_new_tokens"], 1024)
+        self.assertEqual(
+            process_pdf.await_args.kwargs["max_pixels"], settings.ocr_pdf_max_pixels
+        )
+        self.assertEqual(
+            process_pdf.await_args.kwargs["max_new_tokens"],
+            settings.ocr_pdf_max_new_tokens,
+        )
         self.assertEqual(markdown, "Page one\n\nPage two")
         self.assertTrue(progress_events[1][1]["resumed"])
         self.assertFalse(progress_events[2][1]["resumed"])
@@ -349,19 +345,21 @@ class OCRServicePageFlowTests(unittest.TestCase):
             self.service.page_repo.update.return_value = updated_page
 
             with patch.object(self.service, "_save_blocks") as save_blocks:
-                result = asyncio.run(self.service._persist_page_result(
-                    document_id=48,
-                    page_number=7,
-                    image_path=image_path,
-                    width=100,
-                    height=200,
-                    results_dir=root / "results",
-                    result={
-                        "markdown": "Updated",
-                        "prunedResult": {},
-                        "outputImages": None,
-                    },
-                ))
+                result = asyncio.run(
+                    self.service._persist_page_result(
+                        document_id=48,
+                        page_number=7,
+                        image_path=image_path,
+                        width=100,
+                        height=200,
+                        results_dir=root / "results",
+                        result={
+                            "markdown": "Updated",
+                            "prunedResult": {},
+                            "outputImages": None,
+                        },
+                    )
+                )
 
         self.assertIs(result, updated_page)
         self.service.page_repo.create.assert_not_called()

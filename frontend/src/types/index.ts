@@ -1,5 +1,11 @@
 // Document types
 export interface Document {
+  archived_at?: string | null;
+  processing_summary?: {
+    text_blocks: number;
+    polished_blocks: number;
+    polish_status: string;
+  };
   id: number;
   filename: string;
   original_filename: string;
@@ -40,6 +46,8 @@ export interface PageBrief {
 }
 
 export interface Page {
+  original_page_label?: string;
+  folio_side?: string;
   id: number;
   document_id: number;
   page_number: number;
@@ -124,18 +132,10 @@ export interface TaskResult {
 }
 
 export type TaskType =
-  | "ocr"
-  | "ocr_correction"
-  | "modern_english"
-  | "translation_zh"
-  | "export";
+  "ocr" | "ocr_correction" | "modern_english" | "translation_zh" | "export";
 
 export type TaskStatus =
-  | "pending"
-  | "running"
-  | "completed"
-  | "failed"
-  | "cancelled";
+  "pending" | "running" | "completed" | "failed" | "cancelled";
 
 // Export types
 export interface Export {

@@ -1,4 +1,5 @@
 """Page API routes."""
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -22,7 +23,10 @@ def get_page(
     page = page_repo.get_by_id(page_id)
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
-    return page
+    return {
+        **PageResponse.model_validate(page).model_dump(),
+        "blocks": BlockRepository(db).get_by_page(page.id),
+    }
 
 
 @router.get("/{page_id}/blocks")
